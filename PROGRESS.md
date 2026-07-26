@@ -11,7 +11,24 @@ devam edebilmek için tutulur. Güncel durumu ve sıradaki adımı gösterir.
    kararlar SİLİNMEYECEK (değişirse "değiştirildi + neden" notu eklenecek).
 3. Git deposu `superCode` dizininde `git init` ile oluşturuldu (dal: `master`).
 4. İlk commit atıldı: `DECISIONS.md`.
-5. Proje henüz kod içermiyor - implementasyona başlanmadı.
+5. **Task 1 tamamlandı** (proje iskeleti + llama-server bağlantı testi):
+   - `uv init` ile proje kuruldu (`pyproject.toml`, `.python-version=3.12`, `uv.lock`).
+   - `openai` SDK bağımlılık olarak eklendi (`uv add openai`), dev bağımlılık
+     olarak `pytest` eklendi.
+   - `agent/llm_client.py` yazıldı: `create_client`, `get_model_id`, `chat`,
+     `main` fonksiyonları. `base_url="http://localhost:8080/v1"` ile
+     llama-server'a bağlanıyor.
+   - `tests/test_llm_client.py`: llama-server çalışmıyorsa `skipif` ile testler
+     atlanıyor; çalışırken gerçek sunucuya bağlanıp doğruluyor.
+   - Doğrulama (gerçek çalıştırma ile yapıldı):
+     - `uv run pytest -v` → 2/2 test PASSED (gerçek llama-server'a bağlanarak).
+     - `uv run python -m agent.llm_client "merhaba de"` → model gerçek yanıt
+       verdi: "Merhaba! Size nasıl yardımcı olabilirim?"
+     - Sunucu doğrulaması: `curl http://localhost:8080/v1/models` →
+       `Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf` yüklü, `n_ctx=32768`.
+   - `.gitignore` eklendi (`.venv/`, `.pytest_cache/`, `__pycache__/`, `*.pyc`).
+   - Not: Bu ortamda llama-server zaten çalışır durumda bulundu (kullanıcı
+     teyit etti), ayrıca başlatma komutu netleştirme adımına gerek kalmadı.
 
 ## Proje Özeti (Kısa)
 
@@ -40,22 +57,21 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 1: Proje iskeleti ve llama-server bağlantı testi**
-- `uv init` ile proje kurulumu
-- `openai` Python SDK bağımlılığını ekle
-- `base_url="http://localhost:8080/v1"` ile llama-server'a bağlanan basit bir
-  `llm_client.py` modülü yaz
-- Test: llama-server çalışırken basit bir mesajın cevaplandığını doğrulayan
-  entegrasyon testi (server yoksa skip)
-- Demo: `python -m agent.llm_client "merhaba de"` çalışıp modelden cevap alır
+**Task 2: Temel REPL döngüsü (tool'suz)**
+- Kullanıcıdan girdi alan, `agent.llm_client` üzerinden modele gönderen,
+  yanıtı basan basit bir etkileşimli döngü (K12: REPL/chat modu).
+- Konuşma geçmişi (messages listesi) turlar arası korunmalı (tool'suz halde
+  bile, ileride context yönetimi/K13 için temel oluşturacak).
+- Çıkış komutu (örn. `/exit` veya Ctrl+D/Ctrl+C ile temiz çıkış).
+- Demo: `python -m agent.repl` (veya benzeri) ile interaktif sohbet açılır,
+  birden fazla tur boyunca önceki mesajlar hatırlanır.
 
 ## Restart Sonrası Yapılacaklar
 
-1. llama-server'ı `--jinja` flag'i ve Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf
-   modeliyle başlat (henüz tam başlatma komutu netleştirilmedi - Task 1
-   sırasında netleştirilecek).
+1. llama-server'ın `http://localhost:8080` adresinde çalıştığını doğrula
+   (`curl http://localhost:8080/v1/models`).
 2. Bu dosyayı (`PROGRESS.md`) ve `DECISIONS.md`'yi oku, bağlamı tazele.
-3. Task 1'den implementasyona başla.
+3. Task 2'den implementasyona devam et (temel REPL döngüsü).
 
 ## Önemli Notlar / Hatırlatmalar
 

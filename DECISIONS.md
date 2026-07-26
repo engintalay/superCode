@@ -223,6 +223,17 @@ girmeden durup kullanıcıya bilgi vermesi.
   Proje için bir git deposu oluşturulacak.
 - **Gerekçe:** Kararların izlenebilirliği ve gerekçelerin kalıcı kaydı istendi.
 
+### K25: Commit Zamanlaması
+- **Seçilen:** Her task tamamlandığında (Task 1, Task 2, ... Task 11) mutlaka
+  bir commit atılır. Bu, K24'teki "commit'ler sadece kullanıcı açıkça
+  istediğinde atılır" kuralının netleştirilmesidir: task tamamlanması,
+  kullanıcının önceden verdiği açık bir commit talebi olarak sayılır.
+- **Elenen seçenekler:**
+  - Sadece kullanıcı her seferinde ayrıca "commit at" dediğinde atmak —
+    kullanıcı bunun tasklar için varsayılan davranış olmasını istedi.
+- **Gerekçe:** Kullanıcı, task bazlı ilerlemenin git geçmişinde izlenebilir
+  olmasını istedi.
+
 ---
 
 ## Henüz Karar Verilmemiş / Açık Konular
