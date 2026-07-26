@@ -16,7 +16,7 @@ from tests._server_check import server_available
 
 requires_server = pytest.mark.skipif(
     not server_available(),
-    reason="llama-server http://localhost:8080 adresinde çalışmıyor",
+    reason="llama-server http://localhost:8079 adresinde çalışmıyor",
 )
 
 
@@ -253,6 +253,39 @@ def test_run_turn_prompts_for_approval_before_editing_file(tmp_path) -> None:
     assert reply == "Dosya güncellendi."
     assert confirm_calls == ["edit_file"]
     assert (tmp_path / "target.py").read_text() == "x = 2\n"
+
+
+def test_run_turn_stops_and_summarizes_when_repeated_failures_detected(tmp_path) -> None:
+    """K4/K9: Model art arda benzer, başarısız tool-call üretirse (örn.
+    var olmayan bir dosyayı okumaya çalışmak), agent loop MAX_TOOL_HOPS'a
+    kadar gitmeden loop detector tarafından durdurulmalı ve bir özet
+    (DÖNGÜ TESPİTİ) döndürülmeli - sonsuz/yararsız denemeler yerine."""
+
+    def make_failing_read_call(call_id: str) -> MagicMock:
+        tool_call = MagicMock()
+        tool_call.id = call_id
+        tool_call.function.name = "read_file"
+        tool_call.function.arguments = json.dumps({"path": "yok_olan_dosya.py"})
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call]))]
+        return response
+
+    fake_client = MagicMock()
+    # MAX_TOOL_HOPS=5 olsa da REPEAT_THRESHOLD=3'e ulaşınca loop detector
+    # daha önce durdurmalı - bu yüzden sadece 3 sahte yanıt yeterli olmalı.
+    fake_client.chat.completions.create.side_effect = [
+        make_failing_read_call("c1"),
+        make_failing_read_call("c2"),
+        make_failing_read_call("c3"),
+    ]
+
+    messages = [{"role": "user", "content": "yok_olan_dosya.py'yi oku"}]
+    reply = run_turn(fake_client, "fake-model", messages, root=str(tmp_path))
+
+    assert "DÖNGÜ TESPİTİ" in reply
+    assert "read_file" in reply
+    # MAX_TOOL_HOPS'un tamamı (5) denenmeden, 3. tekrar sonrası durmalı.
+    assert fake_client.chat.completions.create.call_count == 3
 
 
 @requires_server

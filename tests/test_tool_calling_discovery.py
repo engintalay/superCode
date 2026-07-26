@@ -44,7 +44,7 @@ READ_FILE_TOOL = {
 
 requires_server = pytest.mark.skipif(
     not server_available(),
-    reason="llama-server http://localhost:8080 adresinde çalışmıyor",
+    reason="llama-server http://localhost:8079 adresinde çalışmıyor",
 )
 
 

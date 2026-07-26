@@ -14,7 +14,7 @@ import sys
 
 from openai import APIConnectionError, OpenAI
 
-DEFAULT_BASE_URL = "http://localhost:8080/v1"
+DEFAULT_BASE_URL = "http://localhost:8079/v1"
 # llama-server API key doğrulaması yapmaz; SDK'nın boş key ile şikayet
 # etmemesi için placeholder bir değer veriyoruz.
 DEFAULT_API_KEY = "not-needed"

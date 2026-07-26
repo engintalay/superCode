@@ -21,13 +21,14 @@ Tamamlanan task'lar:
   + tool-calling agent loop
 - **Task 4** — Onay mekanizması (Approval Gate) + `run_shell` tool'u
 - **Task 5** — `edit_file` tool'u (Aider-tarzı search/replace formatı)
+- **Task 6** — Loop/hata tespiti (Loop Detector)
 
 ## Gereksinimler
 
 - Python ≥ 3.12
 - [`uv`](https://github.com/astral-sh/uv) (paket yöneticisi)
 - Çalışan bir `llama-server` (llama.cpp), `--jinja --tools all` flag'leriyle,
-  `http://localhost:8080` adresinde (varsayılan `base_url`)
+  `http://localhost:8079` adresinde (varsayılan `base_url`)
 
 ## Kurulum
 

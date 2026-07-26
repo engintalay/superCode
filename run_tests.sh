@@ -52,7 +52,7 @@ echo
   echo "## Ortam"
   echo
   echo "- Python: $(uv run python --version 2>&1)"
-  echo "- llama-server durumu: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/v1/models --max-time 2 2>/dev/null | grep -q '^200$' && echo 'çalışıyor' || echo 'çalışmıyor/erişilemedi')"
+  echo "- llama-server durumu: $(curl -s -o /dev/null -w '%{http_code}' http://localhost:8079/v1/models --max-time 2 2>/dev/null | grep -q '^200$' && echo 'çalışıyor' || echo 'çalışmıyor/erişilemedi')"
   echo
   echo "## Pytest Çıktısı"
   echo

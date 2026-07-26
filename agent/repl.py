@@ -1,4 +1,5 @@
-"""Etkileşimli REPL döngüsü + tool-calling agent loop + onay mekanizması.
+"""Etkileşimli REPL döngüsü + tool-calling agent loop + onay mekanizması
++ loop/hata tespiti.
 
 Karar referansları (bkz. DECISIONS.md):
 - K12: Etkileşimli REPL/chat modu.
@@ -9,6 +10,10 @@ Karar referansları (bkz. DECISIONS.md):
   varsayılan olarak kullanıcı onayı ister (bkz. `agent/approval.py`).
 - K8/K14: Otonom mod (`autonomous_mode=True`) açıkken bile yıkıcı komutlar
   ve proje-dışı erişimler onay ister - mutlak sınır, bypass edilemez.
+- K4/K19: Loop detector, her tool-call hop'unda tekrar/belirsizlik/ilerleme
+  sinyallerini izler (bkz. `agent/loop_detector.py`).
+- K9: Döngü tespit edilirse DUR, özetle, alternatif öner, kullanıcı yönü
+  bekle - bu davranış otonom modda da değişmez (mutlak).
 
 Agent loop akışı (her kullanıcı turunda):
 1. Kullanıcı mesajı `messages`'a eklenir.
@@ -19,7 +24,12 @@ Agent loop akışı (her kullanıcı turunda):
    kontrolü yapılır; gerekiyorsa `prompt_user_confirmation()` ile kullanıcıya
    sorulur. Reddedilirse tool ÇALIŞTIRILMAZ, model bu bilgiyle devam eder.
    Onaylanır/gerekmezse tool çalıştırılır, sonucu modele geri verilir.
-5. Tool-call yoksa: `content` doğrudan kullanıcıya gösterilir.
+   Her tool-call, `LoopDetector`'a kaydedilir (K4/K19).
+5. Tool-call yoksa: model belirsizlik ifade ediyorsa (`contains_uncertainty_phrase`)
+   bu da loop detector'a kaydedilir; aksi halde ilerleme kaydedilir.
+   `content` doğrudan kullanıcıya gösterilir.
+6. Her hop sonunda `LoopDetector.check()` çağrılır; tetiklenirse döngü
+   DURUR ve `summarize_loop_detection()` ile özet döner (K9).
 """
 
 from __future__ import annotations
@@ -30,6 +40,7 @@ from openai import APIConnectionError, OpenAI
 
 from agent.approval import prompt_user_confirmation, requires_approval
 from agent.llm_client import DEFAULT_BASE_URL, create_client, get_model_id
+from agent.loop_detector import LoopDetector, contains_uncertainty_phrase, summarize_loop_detection
 from agent.tool_parsing import extract_tool_call_from_content
 from agent.tools import TOOL_DEFINITIONS, ToolError, execute_tool
 
@@ -37,18 +48,22 @@ EXIT_COMMANDS = {"/exit", "/quit"}
 MAX_TOOL_HOPS = 5  # Aynı turda art arda kaç tool-call zincirine izin verilir.
 
 
-def _execute_and_format(name: str, arguments: dict, root: str = ".") -> str:
-    """Tool'u çalıştırır, sonucu modele gösterilecek bir metne çevirir."""
+def _execute_and_format(name: str, arguments: dict, root: str = ".") -> tuple[str, bool]:
+    """Tool'u çalıştırır, sonucu modele gösterilecek bir metne çevirir.
+
+    Döner: `(sonuç_metni, başarılı_mı)`. Loop detector'ın tekrarlanan
+    BAŞARISIZ çağrıları ayırt edebilmesi için başarı durumu da döndürülür.
+    """
     try:
         result = execute_tool(name, arguments, root=root)
     except ToolError as exc:
-        return f"HATA: {exc}"
+        return f"HATA: {exc}", False
     except TypeError as exc:
-        return f"HATA: geçersiz argümanlar ({exc})"
+        return f"HATA: geçersiz argümanlar ({exc})", False
 
     if isinstance(result, str):
-        return result
-    return json.dumps(result, ensure_ascii=False, indent=2)
+        return result, True
+    return json.dumps(result, ensure_ascii=False, indent=2), True
 
 
 def _handle_tool_call(
@@ -56,8 +71,12 @@ def _handle_tool_call(
     root: str,
     autonomous_mode: bool,
     confirm: callable,
-) -> str:
-    """Onay kontrolünden geçirip (gerekirse) tool'u çalıştırır, sonuç metnini döner."""
+) -> tuple[str, bool]:
+    """Onay kontrolünden geçirip (gerekirse) tool'u çalıştırır.
+
+    Döner: `(sonuç_metni, başarılı_mı)`. Kullanıcı reddederse başarısız
+    sayılır (tool fiilen çalışmadı).
+    """
     needs_approval, reason = requires_approval(
         tool_call["name"],
         tool_call["arguments"],
@@ -70,7 +89,8 @@ def _handle_tool_call(
         if not approved:
             return (
                 f"REDDEDİLDİ: Kullanıcı '{tool_call['name']}' çağrısını onaylamadı. "
-                "Bu işlem çalıştırılmadı."
+                "Bu işlem çalıştırılmadı.",
+                False,
             )
 
     return _execute_and_format(tool_call["name"], tool_call["arguments"], root=root)
@@ -83,6 +103,7 @@ def run_turn(
     root: str = ".",
     autonomous_mode: bool = False,
     confirm: callable = prompt_user_confirmation,
+    loop_detector: LoopDetector | None = None,
 ) -> str:
     """Bir kullanıcı turunu, gerekirse tool-call zinciriyle işler.
 
@@ -92,7 +113,13 @@ def run_turn(
 
     `confirm`: test edilebilirlik için enjekte edilebilir onay fonksiyonu
     (varsayılan: gerçek `input()` ile soran `prompt_user_confirmation`).
+    `loop_detector`: verilmezse bu tur için yeni bir `LoopDetector`
+    oluşturulur (turlar arası kalıcı tespit isteniyorsa çağıran taraf aynı
+    instance'ı tekrar geçirebilir).
     """
+    detector = loop_detector if loop_detector is not None else LoopDetector()
+    attempted_actions: list[str] = []
+
     for _ in range(MAX_TOOL_HOPS):
         response = client.chat.completions.create(
             model=model_id,
@@ -116,12 +143,27 @@ def run_turn(
                 tool_call = fallback
 
         if tool_call is None:
-            # Tool-call yok: bu, turun nihai yanıtı.
-            messages.append({"role": "assistant", "content": message.content or ""})
-            return message.content or ""
+            # Tool-call yok: K4'ün belirsizlik sinyalini kontrol et.
+            content = message.content or ""
+            if contains_uncertainty_phrase(content):
+                detector.record_ambiguous_response()
+            else:
+                detector.record_progress()
+
+            check_result = detector.check()
+            if check_result.triggered:
+                summary = summarize_loop_detection(check_result, attempted_actions)
+                messages.append({"role": "assistant", "content": summary})
+                return summary
+
+            # Bu, turun nihai yanıtı.
+            messages.append({"role": "assistant", "content": content})
+            return content
 
         # Tool-call var: onay kontrolünden geçir, çalıştır, sonucu geçmişe ekle.
-        tool_result = _handle_tool_call(tool_call, root, autonomous_mode, confirm)
+        tool_result, succeeded = _handle_tool_call(tool_call, root, autonomous_mode, confirm)
+        detector.record_tool_call(tool_call["name"], tool_call["arguments"], succeeded=succeeded)
+        attempted_actions.append(f"{tool_call['name']}({tool_call['arguments']}) -> {'OK' if succeeded else 'HATA'}")
 
         if tool_call_id is not None:
             # Native tool-calling: OpenAI formatına uygun assistant + tool mesajları.
@@ -152,6 +194,13 @@ def run_turn(
                     "content": f"[Tool sonucu - {tool_call['name']}]\n{tool_result}",
                 }
             )
+
+        # K4/K9: her tool-call hop'u sonrası döngü/çuvallama tespiti kontrolü.
+        check_result = detector.check()
+        if check_result.triggered:
+            summary = summarize_loop_detection(check_result, attempted_actions)
+            messages.append({"role": "user", "content": summary})
+            return summary
 
     return "Hata: Çok fazla ardışık tool çağrısı yapıldı (olası döngü), durduruldu."
 

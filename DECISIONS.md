@@ -322,6 +322,8 @@ girmeden durup kullanıcıya bilgi vermesi.
 - **Gerekçe:** Kullanıcı, bu tür ortam çakışmalarında agent'ın sessizce
   bir şeyi "düzeltmeye" çalışmak yerine ona haber vermesini istedi - kendi
   ortamındaki başka süreçleri/agent'ları o kontrol edecek.
+- **Güncelleme:** Kullanıcı llama-server'ın portunu 8079 olarak değiştirdi
+  (8080'den). `DEFAULT_BASE_URL` ve ilgili tüm referanslar güncellendi.
 
 ---
 

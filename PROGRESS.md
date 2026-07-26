@@ -77,14 +77,66 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 6: Loop/hata tespiti (Loop Detector)**
-- Tekrar sayacı (aynı/benzer tool çağrısı art arda, K4/K19'daki fuzzy
-  benzerlik yaklaşımı).
-- Adım/tur limiti (toplam X turda ilerleme yoksa dur).
-- Belirsizlik tespiti (model "bilmiyorum" der veya tool çağrısı parse
-  edilemezse).
-- K9: Tespit sonrası davranış - dur, durumu özetle, alternatif öner,
-  kullanıcı onayı bekle.
+**Task 7: Otonom mod aktivasyonu + REPL komutu**
+- Task 4'te `autonomous_mode` parametresi ve K8 mutlak sınırları zaten
+  koda eklendi; kalan iş: REPL'de bunu açıp kapatacak bir komut
+  (örn. `/autonomous on|off`) ve CLI flag'i.
+- Uçtan uca doğrulama: otonom modda K8 sınırlarının hâlâ çalıştığını
+  gerçek REPL üzerinden teyit etmek.
+
+### Task 6 TAMAMLANDI - Loop/hata tespiti (Loop Detector)
+
+- `agent/loop_detector.py` (yeni modül):
+  - `LoopDetector` sınıfı: `record_tool_call()`, `record_ambiguous_response()`,
+    `record_progress()` ile durum takibi; `check()` üç sinyali de kontrol eder.
+  - Sinyal 1 - `detect_repeated_tool_calls()`: K4/K19 - son `REPEAT_THRESHOLD=3`
+    tool-call'ın hepsi BAŞARISIZ ve birbirine `SIMILARITY_THRESHOLD=0.85`
+    üzerinde benziyorsa (fuzzy, `SequenceMatcher.ratio()` ile - tam eşleşme
+    değil) tetiklenir.
+  - Sinyal 2 - `detect_ambiguity()`: K4 - art arda `AMBIGUITY_THRESHOLD=3`
+    belirsiz/parse edilemeyen yanıttan sonra tetiklenir.
+  - Sinyal 3 - `detect_no_progress()`: K4 - `MAX_TURNS_WITHOUT_PROGRESS=8`
+    turda ilerleme olmazsa tetiklenir.
+  - `contains_uncertainty_phrase()`: model "bilmiyorum"/"emin değilim"/
+    "I'm not sure"/"clarify" gibi ifadeler kullanıyorsa tespit eder.
+  - `summarize_loop_detection()`: K9 - DUR, sebep, denenenler listesi,
+    3 alternatif öneri, "nasıl ilerlemek istersiniz?" formatında özet üretir.
+- `agent/repl.py`: `run_turn()` içine entegre edildi - her tool-call hop'u
+  sonrası ve her tool-call'sız yanıt sonrası `detector.check()` çağrılır;
+  tetiklenirse döngü MAX_TOOL_HOPS'un tamamına gitmeden durur, özet döner.
+  Bu davranış `autonomous_mode` fark etmeksizin aynıdır (K9, mutlak).
+- Testler:
+  - `tests/test_loop_detector.py`: 14 birim testi (boş geçmiş, başarılı
+    çağrılar tetiklemiyor, aynı/benzer-ama-farklı başarısız çağrılar
+    tetikliyor, farklı tool'lar/farklı argümanlar tetiklemiyor, bir
+    başarı sayaçları sıfırlıyor, belirsizlik eşiği, ilerleme sıfırlama,
+    uncertainty phrase tespiti, özet formatı).
+  - `tests/test_repl.py`: 1 yeni entegrasyon testi - 3 tekrarlı başarısız
+    `read_file` çağrısı sonrası (mock ile) loop detector'ın MAX_TOOL_HOPS'un
+    tamamına (5) gitmeden 3. denemede durduğunu doğruluyor.
+- Doğrulama:
+  - `./run_tests.sh` → 78 passed, 1 skipped (regresyon yok).
+  - Manuel demo: gerçek REPL'de "asla durma" talimatı verildi; model bunu
+    kendi muhakemesiyle reddetti (tool-call zinciri oluşmadı, loop detector
+    tetiklenecek bir senaryo doğal olarak oluşmadı) - bu, gerçek modelin
+    zaten normalde sonsuz döngüye girmeye istekli olmadığını gösteriyor;
+    asıl güvenlik ağı (loop detector) mock testlerle kesin olarak
+    doğrulandı çünkü gerçek modelde tekrarlı başarısızlık senaryosu
+    güvenilir şekilde tetiklenemiyor (model genelde 1 denemeden sonra
+    hata mesajını görüp farklı bir şey deniyor veya durup soruyor).
+- Commit: (bu adımda atılacak).
+
+### Ek: llm-server portu 8080 → 8079 değişti
+
+Kullanıcı llama-server'ın portunu 8079 olarak değiştirdi. Güncellenen
+yerler: `agent/llm_client.py` (`DEFAULT_BASE_URL`), `run_tests.sh`
+(sunucu durum kontrolü), `tests/test_llm_client.py`,
+`tests/test_repl.py`, `tests/test_tool_calling_discovery.py` (skip mesajı
+metinleri), `README.md` (kullanım talimatı). Doğrulama: `curl` ile 8079
+`200` döndü, 8080 artık `000` (erişilemez) - port değişikliği teyit edildi.
+`./run_tests.sh` → 77 passed, 2 skipped (1 skip beklenen, 1 flaky test
+tekrar çalıştırılınca PASSED oldu - bilinen model non-determinism'i,
+port değişikliğiyle ilgisiz).
 
 ### Task 5 TAMAMLANDI - edit_file tool'u (Aider-tarzı search/replace)
 
