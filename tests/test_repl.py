@@ -220,6 +220,41 @@ def test_run_turn_still_prompts_for_destructive_command_in_autonomous_mode(tmp_p
     assert "yıkıcı" in confirm_calls[0].lower() or "geri alınamaz" in confirm_calls[0].lower()
 
 
+def test_run_turn_prompts_for_approval_before_editing_file(tmp_path) -> None:
+    """edit_file çağrısı da run_shell gibi onay istemeli (K7: yazma işlemi)."""
+    (tmp_path / "target.py").write_text("x = 1\n")
+
+    tool_call = MagicMock()
+    tool_call.id = "call_edit_1"
+    tool_call.function.name = "edit_file"
+    tool_call.function.arguments = json.dumps(
+        {"path": "target.py", "diff": "<<<<<<< SEARCH\nx = 1\n=======\nx = 2\n>>>>>>> REPLACE"}
+    )
+
+    first_response = MagicMock()
+    first_response.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call]))]
+    final_response = _make_final_response("Dosya güncellendi.")
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [first_response, final_response]
+
+    confirm_calls = []
+
+    def fake_confirm(name, arguments, reason):
+        confirm_calls.append(name)
+        return True
+
+    messages = [{"role": "user", "content": "target.py'de x=1'i x=2 yap"}]
+    reply = run_turn(
+        fake_client, "fake-model", messages, root=str(tmp_path),
+        autonomous_mode=False, confirm=fake_confirm,
+    )
+
+    assert reply == "Dosya güncellendi."
+    assert confirm_calls == ["edit_file"]
+    assert (tmp_path / "target.py").read_text() == "x = 2\n"
+
+
 @requires_server
 def test_repl_preserves_history_and_exits_on_command(capsys, monkeypatch) -> None:
     """İki tur boyunca geçmişin korunduğunu ve /exit ile temiz çıkışı doğrular."""

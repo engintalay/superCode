@@ -20,6 +20,7 @@ Tamamlanan task'lar:
 - **Task 3** — Read-only tool'lar (`read_file`, `glob_search`, `grep_search`)
   + tool-calling agent loop
 - **Task 4** — Onay mekanizması (Approval Gate) + `run_shell` tool'u
+- **Task 5** — `edit_file` tool'u (Aider-tarzı search/replace formatı)
 
 ## Gereksinimler
 

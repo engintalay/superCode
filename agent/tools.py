@@ -189,6 +189,98 @@ def run_shell(command: str, root: str | Path = ".") -> dict[str, Any]:
     }
 
 
+SEARCH_MARKER = "<<<<<<< SEARCH"
+DIVIDER_MARKER = "======="
+REPLACE_MARKER = ">>>>>>> REPLACE"
+
+
+def _parse_search_replace_block(diff: str) -> tuple[str, str]:
+    """Aider-tarzı search/replace bloğunu ayrıştırır (K6/K17).
+
+    Beklenen format:
+        <<<<<<< SEARCH
+        (aranacak orijinal metin)
+        =======
+        (yeni metin)
+        >>>>>>> REPLACE
+
+    Döner: `(search_text, replace_text)`. Format hatalıysa `ToolError`.
+    """
+    if SEARCH_MARKER not in diff:
+        raise ToolError(
+            f"Geçersiz düzenleme formatı: '{SEARCH_MARKER}' işaretçisi bulunamadı. "
+            "Format: <<<<<<< SEARCH\\n(eski metin)\\n=======\\n(yeni metin)\\n>>>>>>> REPLACE"
+        )
+    if DIVIDER_MARKER not in diff:
+        raise ToolError(f"Geçersiz düzenleme formatı: '{DIVIDER_MARKER}' ayırıcısı bulunamadı.")
+    if REPLACE_MARKER not in diff:
+        raise ToolError(f"Geçersiz düzenleme formatı: '{REPLACE_MARKER}' işaretçisi bulunamadı.")
+
+    try:
+        _, rest = diff.split(SEARCH_MARKER, 1)
+        search_text, rest = rest.split(DIVIDER_MARKER, 1)
+        replace_text, _ = rest.split(REPLACE_MARKER, 1)
+    except ValueError:
+        raise ToolError("Geçersiz düzenleme formatı: işaretçiler beklenen sırada değil.")
+
+    # İlk/son satırdaki tek bir yeni satırı temizle (marker'lardan hemen
+    # sonra/önce gelen \n ayırıcı amaçlıdır, içeriğin parçası değildir).
+    search_text = search_text[1:] if search_text.startswith("\n") else search_text
+    replace_text = replace_text[1:] if replace_text.startswith("\n") else replace_text
+    search_text = search_text[:-1] if search_text.endswith("\n") else search_text
+    replace_text = replace_text[:-1] if replace_text.endswith("\n") else replace_text
+
+    return search_text, replace_text
+
+
+def edit_file(path: str, diff: str, root: str | Path = ".") -> str:
+    """Aider-tarzı search/replace bloğuyla bir dosyayı düzenler (K6/K17).
+
+    `diff`, `_parse_search_replace_block` formatına uygun olmalı. Arama
+    metni dosyada TAM OLARAK BİR KEZ bulunmalı - hiç bulunamazsa veya
+    birden fazla bulunursa (belirsizlik, küçük modelin en sık yaptığı
+    hata türü) işlem reddedilir ve modele açık bir hata mesajı döner.
+    """
+    root_path = Path(root)
+    target = _resolve_within_root(path, root_path)
+
+    if not target.exists():
+        raise ToolError(f"Dosya bulunamadı: {path}")
+    if not target.is_file():
+        raise ToolError(f"'{path}' bir dosya değil.")
+
+    search_text, replace_text = _parse_search_replace_block(diff)
+
+    if search_text == "":
+        raise ToolError("SEARCH bloğu boş olamaz - düzenlenecek metni belirtmelisiniz.")
+
+    try:
+        original = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"Dosya okunamadı: {path} ({exc})")
+
+    occurrences = original.count(search_text)
+    if occurrences == 0:
+        raise ToolError(
+            f"SEARCH bloğu '{path}' dosyasında bulunamadı. Metnin dosyadaki "
+            "haliyle (boşluk/girinti dahil) BİREBİR eşleşmesi gerekir."
+        )
+    if occurrences > 1:
+        raise ToolError(
+            f"SEARCH bloğu '{path}' dosyasında {occurrences} kez bulundu - "
+            "belirsiz, hangi eşleşmenin değiştirileceği anlaşılamıyor. "
+            "SEARCH bloğuna daha fazla bağlam (çevresindeki satırlar) ekleyin."
+        )
+
+    updated = original.replace(search_text, replace_text, 1)
+    try:
+        target.write_text(updated, encoding="utf-8")
+    except OSError as exc:
+        raise ToolError(f"Dosya yazılamadı: {path} ({exc})")
+
+    return f"'{path}' başarıyla düzenlendi (1 değişiklik uygulandı)."
+
+
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -248,6 +340,40 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "edit_file",
+            "description": (
+                "Bir dosyayı search/replace bloğuyla düzenler. Yazma işlemi olduğu için "
+                "kullanıcı onayı gerektirir. `diff` formatı: "
+                "'<<<<<<< SEARCH\\n(dosyadaki birebir eşleşecek eski metin)\\n"
+                "=======\\n(yeni metin)\\n>>>>>>> REPLACE'. "
+                "ÖNEMLİ: SEARCH bloğu, dosyadaki satırı BOŞLUK/GİRİNTİ dahil "
+                "birebir aynı şekilde içermelidir (örn. 4 boşluklu girinti varsa "
+                "SEARCH bloğunda da aynı 4 boşluk olmalı). SEARCH bloğu dosyada "
+                "TAM OLARAK BİR KEZ bulunmalı; birden fazla veya sıfır eşleşme "
+                "işlemi reddeder."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Düzenlenecek dosyanın proje köküne göre relatif yolu.",
+                    },
+                    "diff": {
+                        "type": "string",
+                        "description": (
+                            "'<<<<<<< SEARCH\\n...\\n=======\\n...\\n>>>>>>> REPLACE' "
+                            "formatında search/replace bloğu."
+                        ),
+                    },
+                },
+                "required": ["path", "diff"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_shell",
             "description": (
                 "Verilen shell komutunu proje dizininde çalıştırır. "
@@ -272,6 +398,7 @@ TOOL_FUNCTIONS = {
     "read_file": read_file,
     "glob_search": glob_search,
     "grep_search": grep_search,
+    "edit_file": edit_file,
     "run_shell": run_shell,
 }
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.tools import ToolError, execute_tool, glob_search, grep_search, read_file, run_shell
+from agent.tools import ToolError, edit_file, execute_tool, glob_search, grep_search, read_file, run_shell
 
 
 @pytest.fixture
@@ -134,3 +134,107 @@ def test_run_shell_times_out_on_long_command(sample_project, monkeypatch) -> Non
 def test_execute_tool_dispatches_to_run_shell(sample_project) -> None:
     result = execute_tool("run_shell", {"command": "echo test"}, root=sample_project)
     assert result["exit_code"] == 0
+
+
+def _search_replace_diff(search: str, replace: str) -> str:
+    return f"<<<<<<< SEARCH\n{search}\n=======\n{replace}\n>>>>>>> REPLACE"
+
+
+def test_edit_file_applies_single_replacement(sample_project) -> None:
+    diff = _search_replace_diff("def hello():", "def hello_world():")
+    result = edit_file("src/main.py", diff, root=sample_project)
+    assert "başarıyla düzenlendi" in result
+
+    content = (sample_project / "src" / "main.py").read_text()
+    assert "def hello_world():" in content
+    assert "def hello():" not in content
+
+
+def test_edit_file_missing_file_raises(sample_project) -> None:
+    diff = _search_replace_diff("x", "y")
+    with pytest.raises(ToolError, match="bulunamadı"):
+        edit_file("yok.py", diff, root=sample_project)
+
+
+def test_edit_file_search_not_found_raises(sample_project) -> None:
+    diff = _search_replace_diff("bu_metin_dosyada_yok", "yeni")
+    with pytest.raises(ToolError, match="bulunamadı"):
+        edit_file("src/main.py", diff, root=sample_project)
+
+
+def test_edit_file_ambiguous_search_raises(sample_project) -> None:
+    """SEARCH bloğu birden fazla kez eşleşirse (belirsizlik), reddedilmeli."""
+    (sample_project / "dup.py").write_text("x = 1\nx = 1\n")
+    diff = _search_replace_diff("x = 1", "x = 2")
+    with pytest.raises(ToolError, match="belirsiz|kez bulundu"):
+        edit_file("dup.py", diff, root=sample_project)
+
+
+def test_edit_file_rejects_malformed_diff_missing_search_marker(sample_project) -> None:
+    with pytest.raises(ToolError, match="SEARCH"):
+        edit_file("src/main.py", "sadece düz metin, marker yok", root=sample_project)
+
+
+def test_edit_file_rejects_malformed_diff_missing_divider(sample_project) -> None:
+    bad_diff = "<<<<<<< SEARCH\ndef hello():\n>>>>>>> REPLACE"
+    with pytest.raises(ToolError, match="======="):
+        edit_file("src/main.py", bad_diff, root=sample_project)
+
+
+def test_edit_file_rejects_empty_search_block(sample_project) -> None:
+    diff = _search_replace_diff("", "yeni içerik")
+    with pytest.raises(ToolError, match="boş olamaz"):
+        edit_file("src/main.py", diff, root=sample_project)
+
+
+def test_edit_file_rejects_path_traversal(sample_project) -> None:
+    diff = _search_replace_diff("x", "y")
+    with pytest.raises(ToolError, match="reddedildi"):
+        edit_file("../../etc/passwd", diff, root=sample_project)
+
+
+def test_edit_file_can_delete_text_with_empty_replace(sample_project) -> None:
+    """REPLACE bloğu boş olabilir - bu bir silme işlemi anlamına gelir."""
+    diff = _search_replace_diff("    print('hello world')\n", "")
+    edit_file("src/main.py", diff, root=sample_project)
+    content = (sample_project / "src" / "main.py").read_text()
+    assert "print" not in content
+
+
+def test_execute_tool_dispatches_to_edit_file(sample_project) -> None:
+    diff = _search_replace_diff("def add(a, b):", "def add(a, b, c=0):")
+    result = execute_tool("edit_file", {"path": "src/utils.py", "diff": diff}, root=sample_project)
+    assert "başarıyla düzenlendi" in result
+
+
+def test_edit_file_search_without_indentation_matches_substring_anywhere(sample_project) -> None:
+    """edit_file, satır bazlı değil karakter bazlı TAM ALT-DİZE eşleşmesi
+    yapar. Model SEARCH bloğuna girintiyi (baştaki boşlukları) dahil
+    etmezse, alt-dize girintili satırın İÇİNDE bulunup değiştirilir ve
+    girinti KORUNUR (çünkü .replace() sadece eşleşen alt-diziyi değiştirir,
+    öncesindeki boşluklara dokunmaz)."""
+    (sample_project / "indented.py").write_text('def f():\n    print("hello")\n')
+    diff = _search_replace_diff('print("hello")', 'print("hello world")')
+    edit_file("indented.py", diff, root=sample_project)
+
+    content = (sample_project / "indented.py").read_text()
+    assert content == 'def f():\n    print("hello world")\n'
+
+
+def test_edit_file_replace_with_leading_newline_can_break_indentation(sample_project) -> None:
+    """Bilinen risk (gerçek demo ile tespit edildi): REPLACE bloğunun
+    İÇİNDE (marker'lardan sonraki ilk satır değil, ortasında) fazladan bir
+    boş satır varsa, bu satır girintisiz eklenir ve takip eden satırın
+    girintisini bozabilir - çünkü edit_file yalnızca marker'a bitişik
+    tek bir \\n'i ayıklar, REPLACE içeriğinin kendisine dokunmaz."""
+    (sample_project / "indented2.py").write_text('def f():\n    print("hello")\n')
+    # Modelin ürettiği REPLACE bloğunda satır arası fazladan boş satır var.
+    diff = '<<<<<<< SEARCH\nprint("hello")\n=======\n\nprint("hello world")\n>>>>>>> REPLACE'
+    edit_file("indented2.py", diff, root=sample_project)
+
+    content = (sample_project / "indented2.py").read_text()
+    # Girinti kayboldu çünkü REPLACE'in ilk satırı boş, ikinci satır
+    # (gerçek içerik) girintisiz - bu modelin SEARCH/REPLACE'i yanlış
+    # formatlamasından kaynaklanan bilinen bir risk, tool'un kendisi
+    # verilen metni birebir uyguluyor (beklenen davranış).
+    assert content == 'def f():\n    \nprint("hello world")\n'

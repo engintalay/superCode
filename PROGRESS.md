@@ -77,12 +77,59 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 5: edit_file tool'u (Aider-tarzı search/replace formatı)**
-- K6/K17'de kararlaştırılan search/replace blok formatı (Aider referanslı).
-- `agent/tools.py`'a `edit_file` eklenecek, `APPROVAL_REQUIRED_TOOLS`
-  setinde zaten yer alıyor (Task 4'te önceden eklendi).
-- Demo: Kullanıcı "X dosyasında Y'yi Z ile değiştir" derse, model
-  search/replace bloğu üretir, onay istenir, onaylanırsa dosya düzenlenir.
+**Task 6: Loop/hata tespiti (Loop Detector)**
+- Tekrar sayacı (aynı/benzer tool çağrısı art arda, K4/K19'daki fuzzy
+  benzerlik yaklaşımı).
+- Adım/tur limiti (toplam X turda ilerleme yoksa dur).
+- Belirsizlik tespiti (model "bilmiyorum" der veya tool çağrısı parse
+  edilemezse).
+- K9: Tespit sonrası davranış - dur, durumu özetle, alternatif öner,
+  kullanıcı onayı bekle.
+
+### Task 5 TAMAMLANDI - edit_file tool'u (Aider-tarzı search/replace)
+
+- `agent/tools.py`:
+  - `_parse_search_replace_block()`: `<<<<<<< SEARCH / ======= / >>>>>>> REPLACE`
+    formatını ayrıştırır (K6/K17). Marker eksikse/sıra hatalıysa `ToolError`.
+  - `edit_file()`: SEARCH bloğu dosyada TAM OLARAK BİR KEZ bulunmalı -
+    sıfır eşleşme (bulunamadı) veya birden fazla eşleşme (belirsiz) ayrı
+    ayrı, açık hata mesajlarıyla reddedilir. REPLACE boş olabilir (silme).
+  - `TOOL_DEFINITIONS`e eklendi; tool açıklaması, girinti/boşluğun BİREBİR
+    eşleşmesi gerektiğini modele açıkça vurguluyor (gerçek demo'da tespit
+    edilen bir risk sonrası güçlendirildi, aşağıya bakın).
+  - `APPROVAL_REQUIRED_TOOLS` setinde zaten vardı (Task 4'te önceden
+    eklenmişti) - onay mekanizmasıyla otomatik entegre.
+- Testler:
+  - `tests/test_tools.py`: 11 yeni test (tek değişiklik uygulama, dosya
+    yok, SEARCH bulunamadı, SEARCH belirsiz/birden fazla eşleşme, format
+    hataları - marker eksik, boş SEARCH, path traversal, boş REPLACE ile
+    silme, dispatcher entegrasyonu, girinti davranışı - 2 test, aşağıya
+    bakın).
+  - `tests/test_repl.py`: 1 yeni test (`edit_file` onay akışı - mock ile,
+    onay + gerçek dosya değişikliği doğrulanıyor).
+- **Bulgu (gerçek demo ile tespit edildi):** `edit_file`, satır bazlı değil
+  KARAKTER BAZLI tam alt-dize eşleşmesi yapar (Python `str.replace()`).
+  Model SEARCH bloğuna girintiyi dahil etmezse VE REPLACE bloğunun
+  içinde fazladan bir boş satır varsa, sonuç girintisi bozuk bir dosya
+  olabilir (gerçek demo'da gözlendi: `    print("hello")` →
+  `    \nprint("hello world")`). Bu bir bug değil - tool verilen metni
+  birebir uyguluyor (beklenen davranış), ama model formatı hatalı
+  üretebiliyor. Çözüm: tool açıklaması güçlendirildi ("boşluk/girinti dahil
+  birebir aynı olmalı" açıkça vurgulandı); davranış iki testle
+  (`test_edit_file_search_without_indentation_matches_substring_anywhere`,
+  `test_edit_file_replace_with_leading_newline_can_break_indentation`)
+  regresyon olarak kayıt altına alındı. Modelin bu tür hataları tekrar
+  tekrar yapması durumu Task 6'nın (loop detection) kapsamına giriyor.
+- Doğrulama:
+  - `./run_tests.sh` → 62 passed, 2 skipped (regresyon yok). Rapor:
+    `test_reports/test_report_20260727_013603.md`.
+  - Manuel demo (gerçek sunucu + gerçek REPL, 3 deneme): 1/3 denemede
+    model doğru SEARCH/REPLACE üretip onayladı, sonuç doğru
+    (`def greet():\n    print("hello world")\n`, girinti korunmuş).
+    2/3 denemede model non-determinism nedeniyle format hatası yaptı veya
+    tool-call üretmedi - bu, `edit_file`'ın kendi implementasyon hatası
+    değil, modelin davranışsal kararsızlığı (Task 6'nın çözeceği alan).
+- Commit: (bu adımda atılacak).
 
 ### Task 4 TAMAMLANDI - Onay mekanizması (Approval Gate) + run_shell
 
