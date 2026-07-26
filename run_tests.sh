@@ -27,12 +27,18 @@ REPORT_FILE="$REPORT_DIR/test_report_${TIMESTAMP}.md"
 echo "Testler çalıştırılıyor..."
 echo
 
+# pytest çıktısını CANLI olarak terminale akıt (tee), aynı zamanda rapor için
+# bir dosyaya kaydet. `-v` ile her testin PASSED/FAILED/SKIPPED durumu ve
+# yüzde ilerlemesi ([ %]) anlık olarak görünür.
+RAW_OUTPUT_FILE="$(mktemp)"
+trap 'rm -f "$RAW_OUTPUT_FILE"' EXIT
+
 set +e
-PYTEST_OUTPUT="$(uv run pytest -v "$@" 2>&1)"
-PYTEST_EXIT_CODE=$?
+uv run pytest -v "$@" 2>&1 | tee "$RAW_OUTPUT_FILE"
+PYTEST_EXIT_CODE="${PIPESTATUS[0]}"
 set -e
 
-echo "$PYTEST_OUTPUT"
+PYTEST_OUTPUT="$(cat "$RAW_OUTPUT_FILE")"
 echo
 
 {
