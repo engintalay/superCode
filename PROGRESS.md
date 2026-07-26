@@ -29,6 +29,26 @@ devam edebilmek için tutulur. Güncel durumu ve sıradaki adımı gösterir.
    - `.gitignore` eklendi (`.venv/`, `.pytest_cache/`, `__pycache__/`, `*.pyc`).
    - Not: Bu ortamda llama-server zaten çalışır durumda bulundu (kullanıcı
      teyit etti), ayrıca başlatma komutu netleştirme adımına gerek kalmadı.
+   - Commit: `79a5ec2`.
+6. **Task 2 tamamlandı** (temel REPL döngüsü, tool'suz):
+   - `agent/repl.py` yazıldı: `run_turn` (tek tur istek/yanıt), `repl`
+     (etkileşimli döngü), `main`.
+   - Mesaj geçmişi (`messages` listesi) turlar arası korunuyor (K13'ün temeli;
+     özetleme henüz yok, Task 8'de eklenecek).
+   - Çıkış: `/exit`, `/quit` komutları; Ctrl+D (EOFError) ve Ctrl+C
+     (KeyboardInterrupt) da temiz çıkış yapıyor.
+   - `tests/test_repl.py`: 5 test - exit komutları, `run_turn` gerçek sunucuyla,
+     geçmiş korunumu + `/exit` (gerçek sunucuyla), EOF ile temiz çıkış
+     (mock client ile, sunucu gerektirmez), bağlantı hatası durumunda 1
+     dönmesi (mock ile).
+   - Doğrulama (gerçek çalıştırma ile yapıldı):
+     - `uv run pytest -v` → 7/7 test PASSED.
+     - Manuel demo: `printf "merhaba, sen kimsin?\n/exit\n" | uv run python -m agent.repl`
+       → model kimliğini tanıttı, `/exit` ile "Görüşürüz." basıp çıktı.
+     - Geçmiş korunumu doğrulandı: "Benim adım Engin." → sonraki turda
+       "Benim adım neydi?" sorusuna model "Rica ederim Engin, ..." diyerek
+       ismi doğru hatırladığını gösterdi.
+   - Commit: (bu adımda atılacak).
 
 ## Proje Özeti (Kısa)
 
@@ -57,14 +77,14 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 2: Temel REPL döngüsü (tool'suz)**
-- Kullanıcıdan girdi alan, `agent.llm_client` üzerinden modele gönderen,
-  yanıtı basan basit bir etkileşimli döngü (K12: REPL/chat modu).
-- Konuşma geçmişi (messages listesi) turlar arası korunmalı (tool'suz halde
-  bile, ileride context yönetimi/K13 için temel oluşturacak).
-- Çıkış komutu (örn. `/exit` veya Ctrl+D/Ctrl+C ile temiz çıkış).
-- Demo: `python -m agent.repl` (veya benzeri) ile interaktif sohbet açılır,
-  birden fazla tur boyunca önceki mesajlar hatırlanır.
+**Task 3: Read-only tool'lar + tool-calling**
+- `read_file`, `glob_search`, `grep_search` tool'larının implementasyonu.
+- llama-server `--jinja` ile native tool-calling (Hermes 2 Pro formatı,
+  bkz. K1) kullanarak modelin bu tool'ları çağırabilmesi.
+- Tool tanımları (JSON schema) + agent loop'una tool-call/tool-response
+  akışının eklenmesi (REPL'in genişletilmesi).
+- Demo: Kullanıcı "bu projedeki X dosyasını oku" derse, model tool-call
+  üretir, agent dosyayı okur, sonucu modele geri verir, model özetler.
 
 ## Restart Sonrası Yapılacaklar
 
