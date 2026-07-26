@@ -19,6 +19,7 @@ Tamamlanan task'lar:
 - **Task 2** — Temel REPL döngüsü (tool'suz)
 - **Task 3** — Read-only tool'lar (`read_file`, `glob_search`, `grep_search`)
   + tool-calling agent loop
+- **Task 4** — Onay mekanizması (Approval Gate) + `run_shell` tool'u
 
 ## Gereksinimler
 
@@ -55,6 +56,10 @@ uv run python -m agent.llm_client "merhaba de"
 - Turlar arası korunan konuşma geçmişi
 - Read-only tool'lar: `read_file`, `glob_search`, `grep_search`
   (proje dizini dışına path traversal engellenir)
+- `run_shell` tool'u (varsayılan olarak kullanıcı onayı gerektirir)
+- Onay mekanizması: yazma/shell işlemleri onay ister; otonom mod ile
+  atlanabilir, ancak yıkıcı komutlar ve proje-dışı erişimler otonom modda
+  da her zaman onay ister (mutlak güvenlik sınırı)
 - Native tool-calling (model destekliyorsa) + content içine gömülü
   tool-call JSON'u için fallback ayrıştırma
 

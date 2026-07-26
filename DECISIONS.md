@@ -296,6 +296,33 @@ girmeden durup kullanıcıya bilgi vermesi.
 - **Gerekçe:** Kullanıcı, remote repo eklendiğini bildirip README'nin
   hazırlanmasını ve sürekli güncellenmesini istedi.
 
+### K28: Test Sunucu Kontrolü ve Ortam Çakışması Uyarısı
+- **Seçilen:** `tests/_server_check.py` ortak yardımcı modülü eklendi -
+  `server_available()`, sadece bağlantı kurulup kurulmadığını değil,
+  `/models` endpoint'inin gerçekten HTTP 200 döndürdüğünü de kontrol eder
+  (`follow_redirects=False` ile). Ayrıca: agent, sunucu/port ile ilgili
+  beklenmeyen bir davranış (yanlış yanıt formatı, port çakışması, redirect
+  vb.) tespit ettiğinde, otomatik "düzeltmeye" çalışmadan önce KULLANICIYA
+  HABER VERİR ve kontrol etmesini bekler.
+- **Bulgu (gerçek olay):** Test suite çalıştırılırken 3 test aniden
+  başarısız oldu - `curl` ile kontrol edilince `http://localhost:8080/v1/models`
+  isteğinin `302 Found` + `Location: login.php` + `X-Powered-By: PHP/8.5.8`
+  döndürdüğü görüldü. Bu, llama-server'a ait bir yanıt DEĞİLDİ. Kullanıcı,
+  başka bir coding agent'ın llama-server'ı kapatıp aynı portta (8080) kendi
+  PHP tabanlı uygulamasını çalıştırdığını doğruladı. Kullanıcı bu duruma
+  müdahale edip llama-server'ı yeniden başlattı, sonrasında `200 OK` +
+  gerçek `llama.cpp` yanıtı doğrulandı (5/5 tekrarlı istekte tutarlı).
+- **Kök neden (eski kod bug'ı):** `_server_available()` (3 test dosyasında
+  tekrarlanan bir fonksiyon), `httpx.get()`'in sadece bağlantı hatalarını
+  (`httpx.HTTPError`) yakalıyordu; bir HTTP 302/200 yanıtı (içeriği ne
+  olursa olsun) "sunucu var" sayılıyordu. Bu, port başka bir servise
+  kaptırıldığında testlerin "skip" edilmesi gerekirken çalışmaya
+  başlamasına ve ortasında `TooManyRedirects`/`APIConnectionError` ile
+  patlamasına yol açtı.
+- **Gerekçe:** Kullanıcı, bu tür ortam çakışmalarında agent'ın sessizce
+  bir şeyi "düzeltmeye" çalışmak yerine ona haber vermesini istedi - kendi
+  ortamındaki başka süreçleri/agent'ları o kontrol edecek.
+
 ---
 
 ## Henüz Karar Verilmemiş / Açık Konular

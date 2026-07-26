@@ -1,23 +1,24 @@
-"""Etkileşimli REPL döngüsü + read-only tool-calling agent loop.
+"""Etkileşimli REPL döngüsü + tool-calling agent loop + onay mekanizması.
 
 Karar referansları (bkz. DECISIONS.md):
 - K12: Etkileşimli REPL/chat modu.
 - K13: Context/geçmiş yönetimi (mesaj listesi turlar arası korunuyor).
 - K1/K11 güncellemeleri: native `tool_calls` alanı öncelikli denenir,
   boşsa `agent.tool_parsing` ile content'ten fallback çıkarım yapılır.
-- K7: Read-only tool'lar (read_file, glob_search, grep_search) onay
-  gerektirmeden otomatik çalıştırılır (yazma/shell tool'ları Task 4+'ta
-  onay mekanizmasıyla gelecek).
+- K7: Read-only tool'lar onay gerektirmez; yazma/shell (`run_shell`) tool'ları
+  varsayılan olarak kullanıcı onayı ister (bkz. `agent/approval.py`).
+- K8/K14: Otonom mod (`autonomous_mode=True`) açıkken bile yıkıcı komutlar
+  ve proje-dışı erişimler onay ister - mutlak sınır, bypass edilemez.
 
 Agent loop akışı (her kullanıcı turunda):
 1. Kullanıcı mesajı `messages`'a eklenir.
 2. Modelden `tools=TOOL_DEFINITIONS` ile yanıt istenir.
 3. Yanıtta native `tool_calls` varsa onlar kullanılır; yoksa
    `extract_tool_call_from_content` ile fallback denenir.
-4. Tool-call bulunursa: ilgili tool çalıştırılır, sonucu bir "tool" rolü
-   mesajı (native durumda) veya kullanıcıya özetlenmiş bir sistem notu
-   (fallback durumunda, çünkü fallback'te gerçek bir tool_call_id yok)
-   olarak modele geri verilir, model tekrar çağrılır (nihai yanıt için).
+4. Tool-call bulunursa: `requires_approval()` ile onay gerekip gerekmediği
+   kontrolü yapılır; gerekiyorsa `prompt_user_confirmation()` ile kullanıcıya
+   sorulur. Reddedilirse tool ÇALIŞTIRILMAZ, model bu bilgiyle devam eder.
+   Onaylanır/gerekmezse tool çalıştırılır, sonucu modele geri verilir.
 5. Tool-call yoksa: `content` doğrudan kullanıcıya gösterilir.
 """
 
@@ -27,6 +28,7 @@ import json
 
 from openai import APIConnectionError, OpenAI
 
+from agent.approval import prompt_user_confirmation, requires_approval
 from agent.llm_client import DEFAULT_BASE_URL, create_client, get_model_id
 from agent.tool_parsing import extract_tool_call_from_content
 from agent.tools import TOOL_DEFINITIONS, ToolError, execute_tool
@@ -49,17 +51,47 @@ def _execute_and_format(name: str, arguments: dict, root: str = ".") -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+def _handle_tool_call(
+    tool_call: dict,
+    root: str,
+    autonomous_mode: bool,
+    confirm: callable,
+) -> str:
+    """Onay kontrolünden geçirip (gerekirse) tool'u çalıştırır, sonuç metnini döner."""
+    needs_approval, reason = requires_approval(
+        tool_call["name"],
+        tool_call["arguments"],
+        autonomous_mode=autonomous_mode,
+        project_root=root,
+    )
+
+    if needs_approval:
+        approved = confirm(tool_call["name"], tool_call["arguments"], reason)
+        if not approved:
+            return (
+                f"REDDEDİLDİ: Kullanıcı '{tool_call['name']}' çağrısını onaylamadı. "
+                "Bu işlem çalıştırılmadı."
+            )
+
+    return _execute_and_format(tool_call["name"], tool_call["arguments"], root=root)
+
+
 def run_turn(
     client: OpenAI,
     model_id: str,
     messages: list[dict],
     root: str = ".",
+    autonomous_mode: bool = False,
+    confirm: callable = prompt_user_confirmation,
 ) -> str:
     """Bir kullanıcı turunu, gerekirse tool-call zinciriyle işler.
 
     `messages` listesi bu fonksiyon tarafından tool-call/tool-response
     mesajlarıyla genişletilir (side-effect). Son asistan yanıtının metni
     döner.
+
+    `confirm`: test edilebilirlik için enjekte edilebilir onay fonksiyonu
+    (varsayılan: gerçek `input()` ile soran `prompt_user_confirmation`).
     """
     for _ in range(MAX_TOOL_HOPS):
         response = client.chat.completions.create(
@@ -88,8 +120,8 @@ def run_turn(
             messages.append({"role": "assistant", "content": message.content or ""})
             return message.content or ""
 
-        # Tool-call var: çalıştır, sonucu geçmişe ekle, döngüye devam et.
-        tool_result = _execute_and_format(tool_call["name"], tool_call["arguments"], root=root)
+        # Tool-call var: onay kontrolünden geçir, çalıştır, sonucu geçmişe ekle.
+        tool_result = _handle_tool_call(tool_call, root, autonomous_mode, confirm)
 
         if tool_call_id is not None:
             # Native tool-calling: OpenAI formatına uygun assistant + tool mesajları.
@@ -124,10 +156,12 @@ def run_turn(
     return "Hata: Çok fazla ardışık tool çağrısı yapıldı (olası döngü), durduruldu."
 
 
-def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".") -> int:
+def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: bool = False) -> int:
     """Etkileşimli sohbet döngüsünü başlatır.
 
     Çıkış: `/exit`, `/quit`, veya Ctrl+D (EOFError) / Ctrl+C (KeyboardInterrupt).
+    `autonomous_mode=True` ise yazma/shell tool'ları onay istemeden çalışır
+    (K8'in mutlak sınırları - yıkıcı komut/proje-dışı erişim - hariç).
     """
     client = create_client(base_url=base_url)
     try:
@@ -137,6 +171,9 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".") -> int:
         return 1
 
     print(f"Bağlandı: {model_id}")
+    if autonomous_mode:
+        print("Otonom mod AÇIK: yazma/shell işlemleri onay istemeden çalışacak")
+        print("(yıkıcı komutlar ve proje-dışı erişimler hariç - bunlar her zaman onay ister).")
     print("Çıkmak için /exit, /quit veya Ctrl+D kullanabilirsiniz.\n")
 
     messages: list[dict] = []
@@ -160,7 +197,7 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".") -> int:
         messages.append({"role": "user", "content": user_input})
 
         try:
-            reply = run_turn(client, model_id, messages, root=root)
+            reply = run_turn(client, model_id, messages, root=root, autonomous_mode=autonomous_mode)
         except APIConnectionError:
             print(f"Hata: llama-server'a bağlanılamadı ({base_url}).")
             messages.pop()
@@ -175,3 +212,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

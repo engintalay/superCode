@@ -5,25 +5,17 @@ llama-server çalışmıyorsa sunucu-bağımlı testler skip edilir.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
-import httpx
 import pytest
 
-from agent.llm_client import DEFAULT_BASE_URL, create_client, get_model_id
+from agent.llm_client import create_client, get_model_id
 from agent.repl import EXIT_COMMANDS, repl, run_turn
-
-
-def _server_available() -> bool:
-    try:
-        httpx.get(f"{DEFAULT_BASE_URL}/models", timeout=2.0)
-        return True
-    except httpx.HTTPError:
-        return False
-
+from tests._server_check import server_available
 
 requires_server = pytest.mark.skipif(
-    not _server_available(),
+    not server_available(),
     reason="llama-server http://localhost:8080 adresinde çalışmıyor",
 )
 
@@ -110,6 +102,122 @@ def test_run_turn_executes_tool_via_native_tool_call(tmp_path) -> None:
     assert len(tool_messages) == 1
     assert "merhaba dunya" in tool_messages[0]["content"]
     assert fake_client.chat.completions.create.call_count == 2
+
+
+def _make_shell_tool_call_response(command: str, call_id: str = "call_shell_1") -> MagicMock:
+    tool_call = MagicMock()
+    tool_call.id = call_id
+    tool_call.function.name = "run_shell"
+    tool_call.function.arguments = json.dumps({"command": command})
+    response = MagicMock()
+    response.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call]))]
+    return response
+
+
+def _make_final_response(content: str) -> MagicMock:
+    response = MagicMock()
+    response.choices = [MagicMock(message=MagicMock(content=content, tool_calls=None))]
+    return response
+
+
+def test_run_turn_prompts_for_approval_before_running_shell(tmp_path) -> None:
+    """run_shell çağrısı, autonomous_mode=False iken confirm() fonksiyonunu
+    çağırmalı ve onaylanırsa komutu gerçekten çalıştırmalı."""
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [
+        _make_shell_tool_call_response("echo hello"),
+        _make_final_response("Komut çalıştırıldı."),
+    ]
+
+    confirm_calls = []
+
+    def fake_confirm(name, arguments, reason):
+        confirm_calls.append((name, arguments, reason))
+        return True
+
+    messages = [{"role": "user", "content": "echo hello çalıştır"}]
+    reply = run_turn(
+        fake_client, "fake-model", messages, root=str(tmp_path),
+        autonomous_mode=False, confirm=fake_confirm,
+    )
+
+    assert reply == "Komut çalıştırıldı."
+    assert len(confirm_calls) == 1
+    assert confirm_calls[0][0] == "run_shell"
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    assert "hello" in tool_messages[0]["content"]
+
+
+def test_run_turn_does_not_execute_shell_when_approval_denied(tmp_path) -> None:
+    """Kullanıcı onayı reddederse, komut ÇALIŞTIRILMAMALI - sonuç mesajı
+    reddedildiğini belirtmeli."""
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [
+        _make_shell_tool_call_response("echo should-not-run"),
+        _make_final_response("Anladım, çalıştırmadım."),
+    ]
+
+    def deny_confirm(name, arguments, reason):
+        return False
+
+    messages = [{"role": "user", "content": "echo should-not-run çalıştır"}]
+    reply = run_turn(
+        fake_client, "fake-model", messages, root=str(tmp_path),
+        autonomous_mode=False, confirm=deny_confirm,
+    )
+
+    assert reply == "Anladım, çalıştırmadım."
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_messages) == 1
+    assert "REDDEDİLDİ" in tool_messages[0]["content"]
+    assert "should-not-run" not in tool_messages[0]["content"]
+
+
+def test_run_turn_skips_approval_for_shell_in_autonomous_mode(tmp_path) -> None:
+    """autonomous_mode=True iken normal (yıkıcı olmayan) shell komutu
+    confirm() çağrılmadan direkt çalışmalı."""
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [
+        _make_shell_tool_call_response("echo autonomous"),
+        _make_final_response("Tamamlandı."),
+    ]
+
+    def failing_confirm(name, arguments, reason):
+        raise AssertionError("Otonom modda confirm() çağrılmamalıydı.")
+
+    messages = [{"role": "user", "content": "echo autonomous çalıştır"}]
+    reply = run_turn(
+        fake_client, "fake-model", messages, root=str(tmp_path),
+        autonomous_mode=True, confirm=failing_confirm,
+    )
+
+    assert reply == "Tamamlandı."
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    assert "autonomous" in tool_messages[0]["content"]
+
+
+def test_run_turn_still_prompts_for_destructive_command_in_autonomous_mode(tmp_path) -> None:
+    """K8 mutlak sınırı: otonom modda bile yıkıcı komut confirm() çağırmalı."""
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [
+        _make_shell_tool_call_response("rm -rf /tmp/foo"),
+        _make_final_response("Anladım, çalıştırmadım."),
+    ]
+
+    confirm_calls = []
+
+    def tracking_confirm(name, arguments, reason):
+        confirm_calls.append(reason)
+        return False
+
+    messages = [{"role": "user", "content": "rm -rf /tmp/foo çalıştır"}]
+    run_turn(
+        fake_client, "fake-model", messages, root=str(tmp_path),
+        autonomous_mode=True, confirm=tracking_confirm,
+    )
+
+    assert len(confirm_calls) == 1
+    assert "yıkıcı" in confirm_calls[0].lower() or "geri alınamaz" in confirm_calls[0].lower()
 
 
 @requires_server

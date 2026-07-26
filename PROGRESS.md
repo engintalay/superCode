@@ -77,11 +77,80 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 4: Onay mekanizması (Approval Gate) + run_shell tool'u**
-- Yazma/shell işlemleri için varsayılan onay mekanizması (K7).
-- `run_shell` tool'unun implementasyonu.
-- Otonom mod flag'i (onayları kapatan) + K8'in mutlak güvenlik sınırları
-  (yıkıcı komut / proje-dışı erişim, otonom modda da onay ister).
+**Task 5: edit_file tool'u (Aider-tarzı search/replace formatı)**
+- K6/K17'de kararlaştırılan search/replace blok formatı (Aider referanslı).
+- `agent/tools.py`'a `edit_file` eklenecek, `APPROVAL_REQUIRED_TOOLS`
+  setinde zaten yer alıyor (Task 4'te önceden eklendi).
+- Demo: Kullanıcı "X dosyasında Y'yi Z ile değiştir" derse, model
+  search/replace bloğu üretir, onay istenir, onaylanırsa dosya düzenlenir.
+
+### Task 4 TAMAMLANDI - Onay mekanizması (Approval Gate) + run_shell
+
+- `agent/approval.py` (yeni modül):
+  - `READ_ONLY_TOOLS` / `APPROVAL_REQUIRED_TOOLS` setleri.
+  - `is_destructive_shell_command()`: regex tabanlı yıkıcı komut tespiti
+    (rm -rf, git push --force, git reset --hard, git clean -f, git branch -D,
+    mkfs, dd of=/dev/, fork bomb, vb.) - K8.
+  - `is_outside_project()`: path'in proje kökü dışına çıkıp çıkmadığını
+    kontrol eder - K8.
+  - `requires_approval()`: ana karar fonksiyonu - read-only asla onay
+    istemez; yazma/shell normalde onay ister ama otonom modda atlanır;
+    YIKICI KOMUT ve PROJE-DIŞI ERİŞİM otonom modda BİLE onay ister (K8'in
+    mutlak sınırı, kod seviyesinde garanti edildi).
+  - `prompt_user_confirmation()`: gerçek `input()` ile kullanıcıya soran
+    fonksiyon (test edilebilirlik için `run_turn`'e enjekte edilebilir).
+- `agent/tools.py`: `run_shell` tool'u eklendi (`subprocess.run`,
+  `SHELL_TIMEOUT_SECONDS=30` zaman aşımı, `MAX_SHELL_OUTPUT_BYTES=50000`
+  çıktı kırpma, proje kökünde çalışır). `TOOL_DEFINITIONS`/`TOOL_FUNCTIONS`'a
+  eklendi.
+- `agent/repl.py`: `run_turn` onay akışıyla entegre edildi -
+  `_handle_tool_call()` her tool-call'da önce `requires_approval()`'a bakıp
+  gerekiyorsa `confirm()` çağırıyor; reddedilirse tool ÇALIŞTIRILMIYOR,
+  "REDDEDİLDİ" mesajı modele geri veriliyor. `repl()`/`run_turn()` artık
+  `autonomous_mode` parametresi alıyor.
+- Testler:
+  - `tests/test_approval.py`: 9 birim testi (read-only muafiyeti, varsayılan
+    onay, otonom modda atlama, yıkıcı komut tespiti - pozitif/negatif,
+    K8 mutlak sınırı - yıkıcı komut VE proje-dışı erişim otonom modda da
+    onay istiyor, bilinmeyen tool varsayılan onay ister).
+  - `tests/test_tools.py`: 6 yeni test (`run_shell` stdout/exit_code/stderr,
+    proje kökünde çalışma, zaman aşımı, dispatcher entegrasyonu).
+  - `tests/test_repl.py`: 5 yeni test (onay isteme+kabul, onay reddi
+    (komut çalışmıyor), otonom modda atlama, K8 mutlak sınırı - otonom
+    modda yıkıcı komut yine onay istiyor).
+- Doğrulama:
+  - `./run_tests.sh` → 49 passed, 2 skipped (regresyon yok). Rapor:
+    `test_reports/test_report_20260727_004723.md`.
+  - Manuel demo (gerçek sunucu + gerçek REPL, iki senaryo):
+    1. Onay + kabul: "run_shell tool'unu kullanarak 'echo merhaba' komutunu
+       çalıştır" → `[ONAY GEREKLİ]` gösterildi, "e" girişiyle onaylandı,
+       komut gerçekten çalıştı, model "merhaba" çıktısını doğru özetledi.
+    2. Onay + red: aynı senaryo "h" (hayır) ile → komut ÇALIŞTIRILMADI,
+       model reddedildiğini kabul edip kullanıcıya bildirdi.
+- Commit: `d13971c` sonrası, bu adımda yeni commit atılacak.
+
+### Ek düzeltme: test sunucu kontrolü bug'ı + ortam çakışması (K28)
+
+Test suite çalıştırılırken 3 test aniden başarısız oldu. Kök neden:
+başka bir coding agent, llama-server'ı kapatıp aynı portta (8080) kendi
+PHP tabanlı uygulamasını çalıştırmıştı (`curl` ile `302 Found` +
+`Location: login.php` + `X-Powered-By: PHP/8.5.8` tespit edildi - bu
+llama-server yanıtı değil). Kullanıcı duruma müdahale edip llama-server'ı
+yeniden başlattı, `200 OK` doğrulandı.
+
+Bu sırada test kodunda bir bug bulundu: `_server_available()` (3 dosyada
+tekrarlanan), sadece bağlantı hatasını kontrol ediyordu, HTTP yanıt kodunu
+kontrol etmiyordu - port başka bir servise kaptırıldığında "sunucu var"
+sanıp testleri çalıştırmaya başlıyor, ortasında patlıyordu.
+
+Düzeltme: `tests/_server_check.py` ortak modülü eklendi
+(`server_available()`, HTTP 200 kontrolü + `follow_redirects=False`),
+3 test dosyasındaki tekrar kaldırıldı. K28 eklendi: agent, bu tür ortam
+çakışmalarını tespit ettiğinde otomatik düzeltmeye çalışmadan önce
+kullanıcıya haber verip onun kontrol etmesini bekleyecek.
+
+Doğrulama: `./run_tests.sh` → 50 passed, 1 skipped (sunucu tekrar sağlıklı
+olduktan sonra). Rapor: `test_reports/test_report_20260727_011557.md`.
 
 ### Task 3 TAMAMLANDI - read_file/glob_search/grep_search + agent loop
 

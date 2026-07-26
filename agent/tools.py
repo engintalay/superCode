@@ -1,12 +1,12 @@
-"""Read-only tool'lar: read_file, glob_search, grep_search.
+"""Read-only tool'lar (read_file, glob_search, grep_search) ve run_shell.
 
 Karar referansları (bkz. DECISIONS.md):
 - K5: MVP tool seti (read, glob/grep search, edit, shell).
-- K7: Okuma her zaman serbest (onay gerektirmez).
-- K8: Proje dizini dışına çıkan işlemler onay ister - bu task'ta henüz
-  onay mekanizması yok (Task 4'te gelecek), ama read-only tool'lar da
-  proje kökü dışına path traversal ile çıkamasın diye temel bir sınır
-  (`_resolve_within_root`) burada uygulanıyor.
+- K7: Okuma her zaman serbest (onay gerektirmez); shell/yazma onay ister
+  (onay mekanizması `agent/approval.py`'de, agent loop'ta uygulanır).
+- K8: Proje dizini dışına çıkan işlemler ve yıkıcı komutlar onay ister -
+  bu modülde path traversal koruması (`_resolve_within_root`) uygulanıyor,
+  yıkıcı komut tespiti `agent/approval.py`'de.
 
 Bu modül, hem tool'ların gerçek Python implementasyonlarını hem de
 OpenAI-uyumlu `tools=[...]` isteğinde kullanılacak JSON schema
@@ -17,12 +17,15 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
 MAX_READ_FILE_BYTES = 200_000
 MAX_GREP_MATCHES = 200
 MAX_GLOB_RESULTS = 500
+SHELL_TIMEOUT_SECONDS = 30
+MAX_SHELL_OUTPUT_BYTES = 50_000
 
 
 class ToolError(Exception):
@@ -149,6 +152,43 @@ def grep_search(query: str, root: str | Path = ".", file_pattern: str = "*") -> 
     return results
 
 
+def run_shell(command: str, root: str | Path = ".") -> dict[str, Any]:
+    """Verilen shell komutunu proje kökünde çalıştırır, çıktısını döner.
+
+    Onay mekanizması bu fonksiyonun DIŞINDA uygulanır (bkz. agent/approval.py,
+    agent/repl.py) - bu fonksiyon sadece çalıştırma mantığını içerir, kendi
+    başına bir güvenlik kontrolü yapmaz (çağıran taraf onayı almış olmalı).
+
+    Çıktı `MAX_SHELL_OUTPUT_BYTES` ile kırpılır, komut `SHELL_TIMEOUT_SECONDS`
+    sonra zaman aşımına uğrar (askıda kalan komutların agent'ı kilitlememesi
+    için).
+    """
+    root_path = Path(root).resolve()
+
+    try:
+        completed = subprocess.run(
+            command,
+            shell=True,
+            cwd=root_path,
+            capture_output=True,
+            timeout=SHELL_TIMEOUT_SECONDS,
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        raise ToolError(f"Komut {SHELL_TIMEOUT_SECONDS} saniye içinde tamamlanmadı (zaman aşımı).")
+    except OSError as exc:
+        raise ToolError(f"Komut çalıştırılamadı: {exc}")
+
+    stdout = completed.stdout[:MAX_SHELL_OUTPUT_BYTES]
+    stderr = completed.stderr[:MAX_SHELL_OUTPUT_BYTES]
+
+    return {
+        "exit_code": completed.returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+    }
+
+
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "type": "function",
@@ -205,6 +245,26 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell",
+            "description": (
+                "Verilen shell komutunu proje dizininde çalıştırır. "
+                "Yazma/etkili bir işlem olduğu için kullanıcı onayı gerektirir."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Çalıştırılacak shell komutu (örn. 'ls -la', 'pytest').",
+                    }
+                },
+                "required": ["command"],
+            },
+        },
+    },
 ]
 
 
@@ -212,6 +272,7 @@ TOOL_FUNCTIONS = {
     "read_file": read_file,
     "glob_search": glob_search,
     "grep_search": grep_search,
+    "run_shell": run_shell,
 }
 
 

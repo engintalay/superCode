@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import json
 
-import httpx
 import pytest
 
-from agent.llm_client import DEFAULT_BASE_URL, create_client, get_model_id
+from agent.llm_client import create_client, get_model_id
+from tests._server_check import server_available
 
 READ_FILE_TOOL = {
     "type": "function",
@@ -42,16 +42,8 @@ READ_FILE_TOOL = {
 }
 
 
-def _server_available() -> bool:
-    try:
-        httpx.get(f"{DEFAULT_BASE_URL}/models", timeout=2.0)
-        return True
-    except httpx.HTTPError:
-        return False
-
-
 requires_server = pytest.mark.skipif(
-    not _server_available(),
+    not server_available(),
     reason="llama-server http://localhost:8080 adresinde çalışmıyor",
 )
 

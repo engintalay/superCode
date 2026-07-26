@@ -6,22 +6,13 @@ gereksinimi: "server yoksa skip").
 
 from __future__ import annotations
 
-import httpx
 import pytest
 
-from agent.llm_client import DEFAULT_BASE_URL, chat, create_client, get_model_id
-
-
-def _server_available() -> bool:
-    try:
-        httpx.get(f"{DEFAULT_BASE_URL}/models", timeout=2.0)
-        return True
-    except httpx.HTTPError:
-        return False
-
+from agent.llm_client import chat, create_client, get_model_id
+from tests._server_check import server_available
 
 requires_server = pytest.mark.skipif(
-    not _server_available(),
+    not server_available(),
     reason="llama-server http://localhost:8080 adresinde çalışmıyor",
 )
 

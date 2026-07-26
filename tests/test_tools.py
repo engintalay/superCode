@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.tools import ToolError, execute_tool, glob_search, grep_search, read_file
+from agent.tools import ToolError, execute_tool, glob_search, grep_search, read_file, run_shell
 
 
 @pytest.fixture
@@ -100,3 +100,37 @@ def test_glob_search_matches_double_star_pattern_at_root(sample_project) -> None
     (sample_project / "kok.txt").write_text("kök dosya")
     results = glob_search("**/*.txt", root=sample_project)
     assert "kok.txt" in results
+
+
+def test_run_shell_returns_stdout_and_exit_code(sample_project) -> None:
+    result = run_shell("echo merhaba", root=sample_project)
+    assert result["exit_code"] == 0
+    assert "merhaba" in result["stdout"]
+
+
+def test_run_shell_captures_nonzero_exit_code(sample_project) -> None:
+    result = run_shell("exit 3", root=sample_project)
+    assert result["exit_code"] == 3
+
+
+def test_run_shell_captures_stderr(sample_project) -> None:
+    result = run_shell("echo hata 1>&2", root=sample_project)
+    assert "hata" in result["stderr"]
+
+
+def test_run_shell_runs_in_project_root(sample_project) -> None:
+    result = run_shell("pwd", root=sample_project)
+    assert str(sample_project) in result["stdout"]
+
+
+def test_run_shell_times_out_on_long_command(sample_project, monkeypatch) -> None:
+    import agent.tools as tools_module
+
+    monkeypatch.setattr(tools_module, "SHELL_TIMEOUT_SECONDS", 1)
+    with pytest.raises(ToolError, match="zaman aşımı"):
+        run_shell("sleep 5", root=sample_project)
+
+
+def test_execute_tool_dispatches_to_run_shell(sample_project) -> None:
+    result = execute_tool("run_shell", {"command": "echo test"}, root=sample_project)
+    assert result["exit_code"] == 0
