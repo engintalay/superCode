@@ -31,6 +31,24 @@ girmeden durup kullanıcıya bilgi vermesi.
   doğruluyor. `llama-server --jinja` flag'i ile yapılandırılmış `tool_calls` JSON'u
   güvenilir şekilde alınabiliyor. Uyarı: KV cache'in agresif quantize edilmesi
   (örn. `-ctk q4_0`) tool-calling kalitesini düşürüyor, bundan kaçınılmalı.
+- **Güncelleme (Task 3, gerçek ortam testi ile tespit edildi):** Kullanıcının
+  ortamındaki çalışan llama-server (`llama-vulkan` derlemesi), `--jinja --tools all`
+  ile başlatılmış olsa da, gerçek `/v1/chat/completions` + `tools` isteklerinde
+  native `tool_calls` alanı HİÇ dolmuyor. Model, tool-call JSON'unu bunun yerine
+  `content` alanına üç farklı formattan biriyle gömüyor: ` ```json{...}``` ` bloğu,
+  `<tools>{...}</tools>` etiketi, veya `<call>{...}</call>` etiketi (aynı istek
+  farklı çalıştırmalarda farklı format üretebiliyor - tutarsız).
+  Önce KV cache quantization'ın (`-ctk/-ctv q4_0`) sorumlu olduğu düşünüldü;
+  kullanıcı sunucuyu quantization flag'leri OLMADAN yeniden başlattı
+  (doğrulandı: `ps aux` ile yeni PID, flag'lerin kaldırıldığı görüldü), ancak
+  davranış AYNI kaldı. Bu nedenle kök neden KV cache quantization değil,
+  büyük olasılıkla bu llama-server derlemesinin jinja şablonu/tool-call
+  parser eşleşmesiyle ilgili bir durum.
+  **Karar (geçici çözüm):** Agent, `agent/tool_parsing.py` içinde bir fallback
+  parser kullanacak - önce native `tool_calls` alanına bakılacak, boşsa
+  `content` içindeki bilinen 3 formattan JSON çıkarılacak. K1'in "native
+  tool-calling güvenilir" varsayımı bu ortam için düzeltildi: güvenilir
+  DEĞİL, fallback parser zorunlu bir bileşen.
 
 ### K2: Programlama Dili ve Platform
 - **Seçilen:** Python.

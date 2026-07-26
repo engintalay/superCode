@@ -77,14 +77,44 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 3: Read-only tool'lar + tool-calling**
-- `read_file`, `glob_search`, `grep_search` tool'larının implementasyonu.
-- llama-server `--jinja` ile native tool-calling (Hermes 2 Pro formatı,
-  bkz. K1) kullanarak modelin bu tool'ları çağırabilmesi.
-- Tool tanımları (JSON schema) + agent loop'una tool-call/tool-response
-  akışının eklenmesi (REPL'in genişletilmesi).
+**Task 3 (devamı): read_file/glob_search/grep_search tool'ları + agent loop**
+- Not: Task 3'ün native tool-calling keşif/altyapı kısmı tamamlandı (aşağıya
+  bakın). Kalan iş: gerçek tool fonksiyonlarının (`read_file`, `glob_search`,
+  `grep_search`) yazılması, tool tanımlarının (JSON schema) oluşturulması,
+  ve REPL'in agent loop'una (istek → fallback parser ile tool-call çıkarma
+  → tool çalıştırma → sonucu modele geri verme) dönüştürülmesi.
 - Demo: Kullanıcı "bu projedeki X dosyasını oku" derse, model tool-call
-  üretir, agent dosyayı okur, sonucu modele geri verir, model özetler.
+  üretir (native veya fallback ile), agent dosyayı okur, sonucu modele
+  geri verir, model özetler.
+
+### Task 3 - Önemli Bulgu (native tool-calling güvenilir değil)
+
+Gerçek ortam testinde (curl + OpenAI SDK ile), llama-server'ın native
+`tool_calls` alanı HİÇ dolmuyor - model tool-call JSON'unu `content` içine
+3 farklı formattan biriyle gömüyor: ` ```json{...}``` ` bloğu,
+`<tools>{...}</tools>` etiketi, `<call>{...}</call>` etiketi (format
+tutarsız, aynı istek farklı çalıştırmalarda değişebiliyor).
+
+İlk şüpheli KV cache quantization'dı (`-ctk/-ctv q4_0`, K1'in uyardığı
+durum). Kullanıcı sunucuyu bu flag'ler OLMADAN yeniden başlattı (doğrulandı:
+`ps aux` ile yeni PID, flag'lerin kaldırıldığı teyit edildi) ama davranış
+AYNI kaldı → kök neden quantization değil, muhtemelen bu llama-server
+derlemesinin jinja şablonu/tool-call parser eşleşmesiyle ilgili.
+
+**Çözüm:** `agent/tool_parsing.py` - `extract_tool_call_from_content()`
+fonksiyonu, native `tool_calls` boşsa `content`'ten fallback olarak
+JSON çıkarıyor. Bu artık agent loop'unun ZORUNLU bir bileşeni (K1
+güncellendi, bkz. DECISIONS.md).
+
+Doğrulama:
+- `tests/test_tool_calling_discovery.py`: gerçek sunucuya istek atıp native
+  alanın boş geldiğini, content'te JSON gömülü olduğunu ve fallback
+  parser'ın bunu doğru çıkardığını kanıtlıyor. 2/2 PASSED.
+- `tests/test_tool_parsing.py`: `extract_tool_call_from_content()` için 7
+  birim testi (3 format + hata durumları). 7/7 PASSED, sunucu gerektirmiyor.
+- `./run_tests.sh` → 16/16 PASSED (önceki Task 1/2 testleri de dahil,
+  regresyon yok). Rapor: `test_reports/test_report_20260726_233710.md`.
+- Commit: (bu adımda atılacak).
 
 ## Restart Sonrası Yapılacaklar
 
