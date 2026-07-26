@@ -1,22 +1,22 @@
 """llama-server'ın tool-calling davranışını doğrulayan keşif/regresyon testleri.
 
-Bağlam (bkz. DECISIONS.md K1 güncellemesi ve PROGRESS.md Task 3 notları):
+Bağlam (bkz. DECISIONS.md K1/K11 güncellemeleri ve PROGRESS.md Task 3 notları):
 K1, llama.cpp resmi dokümantasyonuna dayanarak `--jinja` ile native
 `tool_calls` alanının güvenilir şekilde dolacağını varsayıyordu.
 
-Gerçek ortam testinde bu doğrulanamadı: native `tool_calls` alanı hep boş
-geliyor, model `content` içine tool-call JSON'unu üç farklı formattan
-biriyle gömüyor (` ```json ``` ` bloğu, `<tools>` etiketi, `<call>` etiketi).
-İlk aşamada KV cache quantization (`-ctk/-ctv q4_0`) şüpheliydi; sunucu bu
-flag'ler kaldırılarak yeniden başlatıldı (doğrulandı: yeni PID, `ps aux`
-çıktısında flag'lerin yokluğu) ama davranış AYNI kaldı - yani kök neden
-quantization değil, muhtemelen bu derlemenin jinja şablonu/parser
-eşleşmesiyle ilgili.
+İlk test modeli Qwen2.5-Coder-14B-Instruct ile bu doğrulanamadı: native
+`tool_calls` alanı hep boş geliyordu, model `content` içine tool-call
+JSON'unu üç farklı formattan biriyle gömüyordu. KV cache quantization
+şüpheliydi ama flag'ler kaldırılınca da davranış değişmedi.
+
+Kullanıcı test modelini `gemma4-coding-Q4_K_M.gguf` ile değiştirdi - bu
+modelle native `tool_calls` çok daha güvenilir doluyor. Bu testler artık
+her iki durumu da (native dolu / content'e gömülü) kabul edip hangisinin
+gerçekleştiğini raporluyor; fallback parser (agent/tool_parsing.py) hem
+nadir non-determinism durumu hem de ileride model değişirse diye korunuyor.
 
 Bu testler skip edilir (llama-server yoksa) ama çalıştığında sunucunun
-davranışını doğrular - agent tarafında yazılan fallback parser'ın
-(agent/tool_parsing.py) hangi formatları desteklemesi gerektiğini
-kanıtlarla belirler.
+gerçek davranışını doğrular.
 """
 
 from __future__ import annotations

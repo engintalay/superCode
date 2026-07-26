@@ -87,33 +87,43 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
   üretir (native veya fallback ile), agent dosyayı okur, sonucu modele
   geri verir, model özetler.
 
-### Task 3 - Önemli Bulgu (native tool-calling güvenilir değil)
+### Task 3 - Önemli Bulgu (model değişikliği: Qwen2.5-Coder-14B → gemma4-coding)
 
-Gerçek ortam testinde (curl + OpenAI SDK ile), llama-server'ın native
-`tool_calls` alanı HİÇ dolmuyor - model tool-call JSON'unu `content` içine
-3 farklı formattan biriyle gömüyor: ` ```json{...}``` ` bloğu,
-`<tools>{...}</tools>` etiketi, `<call>{...}</call>` etiketi (format
-tutarsız, aynı istek farklı çalıştırmalarda değişebiliyor).
+Gerçek ortam testinde (curl + OpenAI SDK ile), Qwen2.5-Coder-14B-Instruct
+modeliyle llama-server'ın native `tool_calls` alanı HİÇ dolmuyordu - model
+tool-call JSON'unu `content` içine 3 farklı formattan biriyle gömüyordu:
+` ```json{...}``` ` bloğu, `<tools>{...}</tools>` etiketi,
+`<call>{...}</call>` etiketi (format tutarsız).
 
 İlk şüpheli KV cache quantization'dı (`-ctk/-ctv q4_0`, K1'in uyardığı
 durum). Kullanıcı sunucuyu bu flag'ler OLMADAN yeniden başlattı (doğrulandı:
 `ps aux` ile yeni PID, flag'lerin kaldırıldığı teyit edildi) ama davranış
 AYNI kaldı → kök neden quantization değil, muhtemelen bu llama-server
-derlemesinin jinja şablonu/tool-call parser eşleşmesiyle ilgili.
+derlemesinin Qwen2.5-Coder jinja şablonu/tool-call parser eşleşmesiyle ilgili.
 
-**Çözüm:** `agent/tool_parsing.py` - `extract_tool_call_from_content()`
-fonksiyonu, native `tool_calls` boşsa `content`'ten fallback olarak
-JSON çıkarıyor. Bu artık agent loop'unun ZORUNLU bir bileşeni (K1
-güncellendi, bkz. DECISIONS.md).
+**Kullanıcı test modelini değiştirdi:** `gemma4-coding-Q4_K_M.gguf`.
+Doğrulama (8 ayrı gerçek istek): tool gerektiren isteklerde native
+`tool_calls` 7/8 dolu geldi (1 istisna - model non-determinism'i, nadir),
+tool gerektirmeyen sohbette doğru şekilde `tool_calls: None` + normal
+`content` döndü. Bu, `gemma4-coding`'in Qwen2.5-Coder-14B'den çok daha
+güvenilir native tool-calling sağladığını kanıtladı.
+
+**Sonuç:** `agent/tool_parsing.py` (fallback parser) KALDIRILMADI - hem
+nadir non-determinism durumu için güvenlik ağı, hem de ileride farklı bir
+model denenirse tekrar gerekebileceği için korunuyor. Agent loop mantığı:
+önce native `tool_calls`'a bak, boşsa fallback parser'ı dene.
 
 Doğrulama:
-- `tests/test_tool_calling_discovery.py`: gerçek sunucuya istek atıp native
-  alanın boş geldiğini, content'te JSON gömülü olduğunu ve fallback
-  parser'ın bunu doğru çıkardığını kanıtlıyor. 2/2 PASSED.
-- `tests/test_tool_parsing.py`: `extract_tool_call_from_content()` için 7
-  birim testi (3 format + hata durumları). 7/7 PASSED, sunucu gerektirmiyor.
-- `./run_tests.sh` → 16/16 PASSED (önceki Task 1/2 testleri de dahil,
-  regresyon yok). Rapor: `test_reports/test_report_20260726_233710.md`.
+- `tests/test_tool_calling_discovery.py`: artık her iki durumu (native dolu
+  / content'e gömülü) kabul ediyor, hangisinin gerçekleştiğini raporluyor.
+  Gerçek sunucuyla 3 kez arka arkaya çalıştırıldı: her seferinde
+  `test_native_tool_calls_field_is_not_reliable` PASSED,
+  `test_tool_call_json_embedded_in_content_is_extractable` SKIPPED (native
+  doldu, fallback test edilemedi - beklenen davranış).
+- `tests/test_tool_parsing.py`: 7 birim testi, sunucu gerektirmiyor, hepsi
+  PASSED (fallback parser'ın kendisi hâlâ doğru çalışıyor).
+- `./run_tests.sh` → 15 passed, 1 skipped (regresyon yok). Rapor:
+  `test_reports/test_report_20260726_234627.md`.
 - Commit: (bu adımda atılacak).
 
 ## Restart Sonrası Yapılacaklar

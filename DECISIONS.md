@@ -49,6 +49,14 @@ girmeden durup kullanıcıya bilgi vermesi.
   `content` içindeki bilinen 3 formattan JSON çıkarılacak. K1'in "native
   tool-calling güvenilir" varsayımı bu ortam için düzeltildi: güvenilir
   DEĞİL, fallback parser zorunlu bir bileşen.
+  **Güncelleme (model değiştirildi):** Kullanıcı test modelini
+  `gemma4-coding-Q4_K_M.gguf` ile değiştirdi (bkz. K11 güncellemesi). Bu
+  modelle native `tool_calls` çok daha güvenilir doluyor (8 denemede 7/8
+  tool-call isteğinde dolu, tool gerektirmeyen istekte doğru şekilde boş +
+  normal content). Fallback parser (`agent/tool_parsing.py`) KALDIRILMADI -
+  hem nadir non-determinism durumu için güvenlik ağı olarak, hem de ileride
+  farklı bir model denenirse tekrar gerekebileceği için korunuyor. Agent loop
+  mantığı: önce native `tool_calls`'a bak, boşsa fallback parser'ı dene.
 
 ### K2: Programlama Dili ve Platform
 - **Seçilen:** Python.
@@ -140,6 +148,18 @@ girmeden durup kullanıcıya bilgi vermesi.
   - Sadece CPU-only/küçük GPU (7B-8B) hedeflemek — tek boyuta kilitlenmemek için elendi.
   - Sadece orta seviye GPU (13B-34B) hedeflemek — aynı nedenle elendi.
 - **Gerekçe:** Kullanıcının donanımı zamanla değişebilir, esneklik isteniyor.
+- **Güncelleme (Task 3, model değişikliği):** Qwen2.5-Coder-14B-Instruct ile
+  bu llama-server derlemesinde native `tool_calls` alanı güvenilir şekilde
+  dolmadığı tespit edildi (bkz. K1 güncellemesi). Kullanıcı test modelini
+  `gemma4-coding-Q4_K_M.gguf` ile değiştirdi. Gerçek ortam testinde (8 ayrı
+  çalıştırma, tool gerektiren ve gerektirmeyen senaryolar): native `tool_calls`
+  tool gerektiren isteklerde 7/8 dolu geldi (1 istisna, model non-determinism'i
+  - fallback parser bu nadir durumu da karşılayabilir), tool gerektirmeyen
+  sohbette `tool_calls: None` + normal `content` doğru davranış gösterdi.
+  Bu, `gemma4-coding` modelinin Qwen2.5-Coder-14B'den ÇOK daha güvenilir
+  native tool-calling sağladığını kanıtladı. Yeni test modeli:
+  `gemma4-coding-Q4_K_M.gguf`. Qwen2.5-Coder-14B GGUF dosyası hâlâ diskte
+  mevcut, ileride tekrar denenebilir (örn. farklı bir llama.cpp derlemesiyle).
 
 ### K12: Kullanıcı Arayüzü
 - **Seçilen:** Etkileşimli REPL/chat modu (Kiro CLI deneyimine yakın).
