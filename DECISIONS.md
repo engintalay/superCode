@@ -57,6 +57,26 @@ girmeden durup kullanıcıya bilgi vermesi.
   hem nadir non-determinism durumu için güvenlik ağı olarak, hem de ileride
   farklı bir model denenirse tekrar gerekebileceği için korunuyor. Agent loop
   mantığı: önce native `tool_calls`'a bak, boşsa fallback parser'ı dene.
+  **Güncelleme 2 (Task 6 sonrası, ikinci model değişikliği):** Kullanıcı
+  `gemma4-coding`'e güvenmediğini belirtti. Ayrı bir sunucuda (port 8080)
+  `Qwopus3.5-9B-coder-Exp-Q6_K.gguf` (Jackrong fine-tune, Qwen3.5-9B taban,
+  agentic tool-calling için özel eğitilmiş) modeli denendi - gerçek proje
+  kodu (`agent.repl.run_turn`) ile uçtan uca test edildi:
+  - Native `tool_calls`: 3/3 curl denemesinde ve gerçek `run_turn`
+    çağrılarında (read_file, edit_file) tutarlı şekilde doldu.
+  - `edit_file` senaryosu: SEARCH bloğuna girintiyi doğru dahil etti, TEK
+    denemede başarılı oldu (girinti korunarak) - `gemma4-coding` ile aynı
+    senaryoda 3 denemeden sadece 1'i başarılıydı.
+  - Var olmayan dosya senaryosunda model tek denemede hatayı kabul edip
+    durdu, döngüye girmedi.
+  - Karar: test modeli `Qwopus3.5-9B-coder-Exp-Q6_K.gguf` olarak
+    değiştirildi. Kullanıcı, ana llama-server'ı (port 8079) bu modelle
+    yeniden başlatacak.
+  - **Doğrulandı:** Kullanıcı port 8079'daki ana sunucuyu bu modelle
+    yeniden başlattı (bir ara `mmproj` dosyası sorun çıkardığı için
+    kaldırıldı, sonrasında sunucu sağlıklı çalıştı). Tüm proje test
+    suite'i (`./run_tests.sh`) bu model üzerinden çalıştırıldı:
+    78 passed, 1 skipped, regresyon yok.
 
 ### K2: Programlama Dili ve Platform
 - **Seçilen:** Python.
@@ -160,6 +180,18 @@ girmeden durup kullanıcıya bilgi vermesi.
   native tool-calling sağladığını kanıtladı. Yeni test modeli:
   `gemma4-coding-Q4_K_M.gguf`. Qwen2.5-Coder-14B GGUF dosyası hâlâ diskte
   mevcut, ileride tekrar denenebilir (örn. farklı bir llama.cpp derlemesiyle).
+- **Güncelleme 2 (Task 6 sonrası, üçüncü model değişikliği):** Kullanıcı
+  `gemma4-coding`'e güvenmediğini belirtti. `Qwopus3.5-9B-coder-Exp-Q6_K.gguf`
+  (Jackrong fine-tune, Qwen3.5-9B taban, agentic tool-calling için özel
+  eğitilmiş, 9B parametre - önceki modellerden daha küçük) ayrı bir sunucuda
+  (port 8080) denendi, gerçek proje kodu ile uçtan uca test edildi: native
+  `tool_calls` tutarlı doldu, `edit_file` senaryosunda girinti doğru
+  korunarak TEK denemede başarılı oldu (gemma4-coding'de 3 denemeden 1'i
+  başarılıydı), var olmayan dosya senaryosunda model döngüye girmeden tek
+  denemede durdu. Karar: yeni test modeli **Qwopus3.5-9B-coder-Exp-Q6_K.gguf**,
+  kullanıcı ana llama-server'ı (port 8079) bu modelle yeniden başlattı
+  (bir ara `mmproj` dosyası sorun çıkardı, kaldırılınca düzeldi).
+  **Doğrulandı:** `./run_tests.sh` → 78 passed, 1 skipped, regresyon yok.
 
 ### K12: Kullanıcı Arayüzü
 - **Seçilen:** Etkileşimli REPL/chat modu (Kiro CLI deneyimine yakın).

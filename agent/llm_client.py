@@ -2,7 +2,9 @@
 
 Karar referansları (bkz. DECISIONS.md):
 - K1: llama.cpp `llama-server`, OpenAI-uyumlu `/v1/chat/completions`, `--jinja`.
-- K11: Test modeli Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf.
+- K11: Test modeli Qwopus3.5-9B-coder-Exp-Q6_K.gguf (bkz. DECISIONS.md K11
+  güncellemeleri - model zaman içinde değişebilir, bu istemci modele
+  bağımlı değildir, `get_model_id()` ile sunucudan otomatik alınır).
 
 Bu modül, Task 1 kapsamında sadece temel bağlantı/sohbet fonksiyonelliğini
 sağlar. Tool-calling, loop detection vb. sonraki task'larda eklenecek.
