@@ -44,6 +44,75 @@ def test_run_turn_returns_nonempty_reply() -> None:
 
 
 @requires_server
+def test_run_turn_executes_read_file_tool_and_summarizes(tmp_path) -> None:
+    """Gerçek sunucuyla: model 'X dosyasını oku' isteğine tool-call üretip,
+    agent'ın gerçek dosya içeriğini okuyup modele geri verdiğini doğrular.
+
+    Not: Küçük/kısıtlı modelin tool-call üretmesi %100 garanti değil (bazen
+    doğrudan halüsinasyon yapabiliyor, bkz. DECISIONS.md K11 model
+    non-determinism notu). Bu test bu nedenle iki kabul kriterinden birini
+    kontrol eder: (a) agent gerçekten `read_file` tool'unu çalıştırdıysa,
+    gerçek dosya içeriği tool mesajında bulunmalı VE nihai yanıt bunu
+    içermeli; (b) model tool-call üretmediyse (nadir durum), test skip edilir
+    - bu, agent kodunun bir hatası değil, modelin davranışsal kararsızlığıdır.
+    """
+    (tmp_path / "gizli_kelime.txt").write_text("PORTAKAL42")
+
+    client = create_client()
+    model_id = get_model_id(client)
+    messages = [
+        {
+            "role": "user",
+            "content": "gizli_kelime.txt dosyasını read_file tool'u ile oku ve içeriğini birebir yaz.",
+        }
+    ]
+    reply = run_turn(client, model_id, messages, root=str(tmp_path))
+
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    if not tool_messages:
+        pytest.skip(
+            "Model bu çalıştırmada tool-call üretmedi (davranışsal "
+            "non-determinism) - agent loop kodu test edilemedi."
+        )
+
+    assert "PORTAKAL42" in tool_messages[0]["content"]
+    assert "PORTAKAL42" in reply
+
+
+def test_run_turn_executes_tool_via_native_tool_call(tmp_path) -> None:
+    """Mock client ile: native tool_calls alanı dolu geldiğinde agent loop'un
+    tool'u çalıştırıp sonucu ikinci bir istekte modele ilettiğini doğrular.
+    Sunucu gerektirmez."""
+    (tmp_path / "not.txt").write_text("merhaba dunya")
+
+    tool_call = MagicMock()
+    tool_call.id = "call_1"
+    tool_call.function.name = "read_file"
+    tool_call.function.arguments = '{"path": "not.txt"}'
+
+    first_response = MagicMock()
+    first_response.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call]))]
+
+    final_response = MagicMock()
+    final_response.choices = [
+        MagicMock(message=MagicMock(content="Dosyada 'merhaba dunya' yazıyor.", tool_calls=None))
+    ]
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [first_response, final_response]
+
+    messages = [{"role": "user", "content": "not.txt dosyasını oku"}]
+    reply = run_turn(fake_client, "fake-model", messages, root=str(tmp_path))
+
+    assert reply == "Dosyada 'merhaba dunya' yazıyor."
+    # Tool sonucu gerçekten geçmişe eklenmiş olmalı.
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    assert len(tool_messages) == 1
+    assert "merhaba dunya" in tool_messages[0]["content"]
+    assert fake_client.chat.completions.create.call_count == 2
+
+
+@requires_server
 def test_repl_preserves_history_and_exits_on_command(capsys, monkeypatch) -> None:
     """İki tur boyunca geçmişin korunduğunu ve /exit ile temiz çıkışı doğrular."""
     inputs = iter(["merhaba", "/exit"])

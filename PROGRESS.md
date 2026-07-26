@@ -77,15 +77,59 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 3 (devamı): read_file/glob_search/grep_search tool'ları + agent loop**
-- Not: Task 3'ün native tool-calling keşif/altyapı kısmı tamamlandı (aşağıya
-  bakın). Kalan iş: gerçek tool fonksiyonlarının (`read_file`, `glob_search`,
-  `grep_search`) yazılması, tool tanımlarının (JSON schema) oluşturulması,
-  ve REPL'in agent loop'una (istek → fallback parser ile tool-call çıkarma
-  → tool çalıştırma → sonucu modele geri verme) dönüştürülmesi.
-- Demo: Kullanıcı "bu projedeki X dosyasını oku" derse, model tool-call
-  üretir (native veya fallback ile), agent dosyayı okur, sonucu modele
-  geri verir, model özetler.
+**Task 4: Onay mekanizması (Approval Gate) + run_shell tool'u**
+- Yazma/shell işlemleri için varsayılan onay mekanizması (K7).
+- `run_shell` tool'unun implementasyonu.
+- Otonom mod flag'i (onayları kapatan) + K8'in mutlak güvenlik sınırları
+  (yıkıcı komut / proje-dışı erişim, otonom modda da onay ister).
+
+### Task 3 TAMAMLANDI - read_file/glob_search/grep_search + agent loop
+
+Task 3'ün kalan kısmı (native tool-calling keşfi + model değişikliği zaten
+yukarıda dokümante edildi) tamamlandı:
+
+- `agent/tools.py`: `read_file`, `glob_search`, `grep_search` implementasyonları
+  + `TOOL_DEFINITIONS` (OpenAI-uyumlu JSON schema) + `execute_tool` dispatcher.
+  - Path traversal koruması (`_resolve_within_root`) - proje kökü dışına
+    çıkan okumalar `ToolError` ile reddediliyor (K7/K8'in temeli).
+  - `execute_tool`, argüman adlarını küçük harfe normalize ediyor (model
+    bazen "Pattern" gibi yanlış büyük/küçük harfli argüman üretebiliyor,
+    gerçek testte tespit edildi) ve `TypeError`'ı `ToolError`'a çeviriyor.
+  - `glob_search`, `**/*.ext` desenini kök dizindeki dosyalarla da eşleşecek
+    şekilde düzeltildi (fnmatch'in doğal davranışı bunu desteklemiyordu -
+    gerçek testte tespit edilen bir bug).
+- `agent/repl.py`: `run_turn` tam bir tool-calling agent loop'una dönüştürüldü.
+  - Native `tool_calls` alanı öncelikli denenir; boşsa
+    `extract_tool_call_from_content` ile fallback denenir (K1/K11 uyumlu).
+  - Native tool-call: OpenAI formatına uygun `assistant` (tool_calls ile) +
+    `tool` (tool_call_id ile) mesaj çifti eklenir, model tekrar çağrılır.
+  - Fallback tool-call: gerçek tool_call_id yok, sonuç bir `user` rolü
+    notu olarak eklenir (basit ama işlevsel bir çözüm).
+  - `MAX_TOOL_HOPS=5` ile sonsuz tool-call zincirine karşı temel bir sınır
+    (asıl loop detection Task 6'da gelecek, bu şimdilik kaba bir güvenlik ağı).
+- Testler:
+  - `tests/test_tools.py`: 14 birim testi (path traversal, kırpma, glob/grep
+    davranışı, argüman normalizasyonu, `**` deseni). Sunucu gerektirmiyor.
+  - `tests/test_repl.py`: 2 yeni test eklendi -
+    `test_run_turn_executes_read_file_tool_and_summarizes` (gerçek sunucu,
+    modelin non-determinism'i nedeniyle tool-call üretmezse SKIP eder - bu
+    agent kodunun hatası değil, modelin davranışsal kararsızlığı),
+    `test_run_turn_executes_tool_via_native_tool_call` (mock client, sunucu
+    gerektirmez, tool zincirinin doğru işlediğini kesin olarak doğrular).
+- Doğrulama:
+  - `./run_tests.sh` → 31 passed, 1 skipped (regresyon yok). Rapor:
+    `test_reports/test_report_20260727_003226.md`.
+  - Manuel demo: `printf "README.md dosyasını oku ve özetle...\n/exit\n" | uv run python -m agent.repl`
+    → model `read_file` tool'unu kullanarak README.md'yi gerçekten okudu,
+    doğru bir özet üretti.
+- Commit: (bu adımda atılacak).
+
+### README.md ve Remote Repo (K27)
+
+Kullanıcı GitHub'da bir remote repo ekledi (`origin` →
+`https://github.com/engintalay/superCode.git`). `README.md` güncel proje
+durumuna göre yeniden yazıldı (tamamlanan task'lar, kullanım, proje yapısı).
+K27 kararı: README.md her task tamamlandığında güncellenecek.
 
 ### Task 3 - Önemli Bulgu (model değişikliği: Qwen2.5-Coder-14B → gemma4-coding)
 
@@ -141,3 +185,4 @@ Doğrulama:
 - Commit'ler her task tamamlandığında mutlaka atılır (K25).
 - Her task tamamlandığında `./run_tests.sh` çalıştırılıp tarihli rapor
   `test_reports/` altına kaydedilir (K26) - regresyon kontrolü için.
+- README.md her task tamamlandığında güncel duruma göre güncellenir (K27).

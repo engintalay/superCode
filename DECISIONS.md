@@ -287,6 +287,15 @@ girmeden durup kullanıcıya bilgi vermesi.
   edilmesini ve her geliştirmeden sonra tüm eski testlerin de çalıştığından
   emin olunmasını istedi.
 
+### K27: README.md Güncel Tutulması
+- **Seçilen:** `README.md`, her task tamamlandığında güncel proje durumunu
+  (tamamlanan task'lar, mevcut özellikler, kullanım) yansıtacak şekilde
+  güncellenir. Kullanıcı projeye bir remote git deposu ekledi
+  (`origin` → GitHub), bu nedenle README'nin dışarıdan bakan biri için
+  güncel ve doğru olması önem kazandı.
+- **Gerekçe:** Kullanıcı, remote repo eklendiğini bildirip README'nin
+  hazırlanmasını ve sürekli güncellenmesini istedi.
+
 ---
 
 ## Henüz Karar Verilmemiş / Açık Konular
