@@ -234,6 +234,21 @@ girmeden durup kullanıcıya bilgi vermesi.
 - **Gerekçe:** Kullanıcı, task bazlı ilerlemenin git geçmişinde izlenebilir
   olmasını istedi.
 
+### K26: Test Raporlama ve Regresyon Kontrolü
+- **Seçilen:** Her geliştirme adımından (task) sonra `./run_tests.sh` çalıştırılır.
+  Bu script tüm test suite'ini (`uv run pytest -v`) çalıştırır ve sonucu
+  `test_reports/test_report_YYYYMMDD_HHMMSS.md` olarak tarih damgalı, kalıcı
+  bir dosyaya kaydeder (komut, çıkış kodu, ortam bilgisi, tam pytest çıktısı
+  dahil). Amaç: yeni kodun çalıştığını doğrulamanın yanı sıra önceki
+  task'ların kodunun/testlerinin bozulmadığını (regresyon yok) her adımda
+  somut, arşivlenebilir kanıtla teyit etmek.
+- **Elenen seçenekler:**
+  - Sadece terminalde `pytest` çalıştırıp sonucu sohbette özetlemek — kalıcı,
+    tarihli bir kayıt bırakmadığı için kullanıcı tarafından yetersiz bulundu.
+- **Gerekçe:** Kullanıcı, test sonuçlarının tarihli şekilde dokümante
+  edilmesini ve her geliştirmeden sonra tüm eski testlerin de çalıştığından
+  emin olunmasını istedi.
+
 ---
 
 ## Henüz Karar Verilmemiş / Açık Konular

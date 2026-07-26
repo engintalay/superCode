@@ -98,4 +98,6 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 - Her yeni karar `DECISIONS.md`'ye eklenmeli, eski kararlar silinmemeli.
 - Yıkıcı git komutları (force push, reset --hard vb.) kullanıcı onayı olmadan
   çalıştırılmayacak - bu kural agent'ın kendi geliştirme sürecinde de geçerli.
-- Commit'ler sadece kullanıcı açıkça istediğinde atılacak.
+- Commit'ler her task tamamlandığında mutlaka atılır (K25).
+- Her task tamamlandığında `./run_tests.sh` çalıştırılıp tarihli rapor
+  `test_reports/` altına kaydedilir (K26) - regresyon kontrolü için.
