@@ -1,9 +1,10 @@
 """Etkileşimli REPL döngüsü + tool-calling agent loop + onay mekanizması
-+ loop/hata tespiti.
++ loop/hata tespiti + context yönetimi.
 
 Karar referansları (bkz. DECISIONS.md):
 - K12: Etkileşimli REPL/chat modu.
-- K13: Context/geçmiş yönetimi (mesaj listesi turlar arası korunuyor).
+- K13: Context/geçmiş yönetimi - context limitine yaklaşılınca geçmiş
+  ayrı bir LLM çağrısıyla özetlenir (bkz. `agent/context_manager.py`).
 - K1/K11 güncellemeleri: native `tool_calls` alanı öncelikli denenir,
   boşsa `agent.tool_parsing` ile content'ten fallback çıkarım yapılır.
 - K7: Read-only tool'lar onay gerektirmez; yazma/shell (`run_shell`) tool'ları
@@ -39,6 +40,7 @@ import json
 from openai import APIConnectionError, OpenAI
 
 from agent.approval import prompt_user_confirmation, requires_approval
+from agent.context_manager import get_context_limit, maybe_summarize
 from agent.llm_client import DEFAULT_BASE_URL, create_client, get_model_id
 from agent.loop_detector import LoopDetector, contains_uncertainty_phrase, summarize_loop_detection
 from agent.tool_parsing import extract_tool_call_from_content
@@ -252,6 +254,7 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: boo
     print("Çıkmak için /exit, /quit veya Ctrl+D kullanabilirsiniz.")
     print(f"Otonom modu değiştirmek için: {AUTONOMOUS_COMMAND_PREFIX} on|off|status\n")
 
+    context_limit = get_context_limit(client, model_id)
     messages: list[dict] = []
 
     while True:
@@ -275,6 +278,12 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: boo
             continue
 
         messages.append({"role": "user", "content": user_input})
+
+        # K13: context limitine yaklaşılıyorsa geçmişi özetle.
+        summarized = maybe_summarize(client, model_id, messages, context_limit=context_limit)
+        if len(summarized) != len(messages):
+            print("[Bağlam özetlendi: konuşma geçmişi context limitine yaklaştığı için kısaltıldı.]")
+        messages[:] = summarized
 
         try:
             reply = run_turn(client, model_id, messages, root=root, autonomous_mode=autonomous_mode)

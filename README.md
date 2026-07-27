@@ -23,6 +23,7 @@ Tamamlanan task'lar:
 - **Task 5** — `edit_file` tool'u (Aider-tarzı search/replace formatı)
 - **Task 6** — Loop/hata tespiti (Loop Detector)
 - **Task 7** — Otonom mod aktivasyonu + `/autonomous` REPL komutu
+- **Task 8** — Context yönetimi (özetleme)
 
 ## Gereksinimler
 
@@ -73,6 +74,9 @@ uv run python -m agent.llm_client "merhaba de"
   atlanabilir (`/autonomous on|off|status` komutu veya `--autonomous`
   CLI flag'i ile), ancak yıkıcı komutlar ve proje-dışı erişimler otonom
   modda da her zaman onay ister (mutlak güvenlik sınırı)
+- Context yönetimi: konuşma geçmişi context limitine yaklaştığında
+  otomatik olarak özetlenir (eski mesajlar tek bir özete indirilir, son
+  mesajlar korunur)
 - Native tool-calling (model destekliyorsa) + content içine gömülü
   tool-call JSON'u için fallback ayrıştırma
 

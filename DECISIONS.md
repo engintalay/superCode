@@ -357,18 +357,92 @@ girmeden durup kullanıcıya bilgi vermesi.
 - **Güncelleme:** Kullanıcı llama-server'ın portunu 8079 olarak değiştirdi
   (8080'den). `DEFAULT_BASE_URL` ve ilgili tüm referanslar güncellendi.
 
+### K29: Context Özetleme Tetikleme Eşiği (K13'ün detaylandırılması, implementasyon sırasında netleşti)
+### K29: Context Özetleme Tetikleme Eşiği (K13'ün detaylandırılması, implementasyon sırasında netleşti)
+- **⚠️ ONAY DURUMU: Bu karar KULLANICI TARAFINDAN TEYİT EDİLMEDİ.** Agent
+  (Kiro) tarafından, `autonomy` ilkesi ("minor choices... pick a reasonable
+  option and note it rather than asking") gerekçesiyle tek başına
+  belirlenmiş sayısal/teknik değerlerdir. Kullanıcı bu değerleri
+  sorguladı (bkz. sohbet geçmişi, 2026-07-27 03:13); henüz açıkça
+  onaylanmadı veya değiştirilmedi. Kullanıcı isterse bu değerler
+  değiştirilebilir.
+- **Seçilen (agent tarafından, tek başına):** Token tahmini için tam bir
+  tokenizer bağımlılığı eklemek yerine basit bir heuristik
+  (`karakter_sayısı / 4`) kullanılır - amaç kesin sayım değil, "limite
+  yaklaşıyoruz" sinyali. Tetikleme eşiği: tahmini token sayısı
+  `n_ctx * 0.75`'i geçerse özetleme yapılır (0.75 oranı agent tarafından
+  seçildi, kullanıcı onayı yok). `n_ctx` değeri sunucudan
+  (`/v1/models` → `meta.n_ctx`) dinamik olarak okunur (modele göre
+  değişebildiği için hardcode edilmedi). Özetleme sırasında system
+  mesajları ve en son 4 mesaj (bu sayı da agent tarafından seçildi,
+  kullanıcı onayı yok) korunur, aradakiler ayrı bir LLM çağrısıyla tek
+  bir özet mesajına indirilir.
+- **Elenen seçenekler (agent tarafından, tek başına değerlendirildi):**
+  - Tam bir tokenizer kütüphanesi eklemek (örn. tiktoken) - ekstra
+    bağımlılık ve model-spesifik tokenizer eşleşme riski nedeniyle
+    gereksiz karmaşıklık olarak değerlendirildi; kaba tahmin yeterli.
+  - Sabit bir context_limit (hardcoded) kullanmak - farklı modeller farklı
+    `n_ctx` değerlerine sahip olduğu için (K11: model değişebiliyor)
+    dinamik okuma tercih edildi.
+- **Gerekçe (agent tarafından):** Basit ve bağımlılıksız bir çözüm, K11'in
+  "farklı model boyutlarına uyumlu tasarım" ilkesiyle örtüşüyor. Kullanıcı
+  onayı OLMADAN uygulandı çünkü `DECISIONS.md`'nin önceki halinde bu üç
+  eşiğin "implementasyon sırasında netleşecek teknik detay" olduğu
+  önceden not edilmişti; ancak bu not kullanıcının açık onayı anlamına
+  gelmiyordu, sadece agent'ın yorumuydu.
+
+### K30: Loop Detector Sayısal Eşikleri (K4/K19'un detaylandırılması, implementasyon sırasında netleşti)
+- **⚠️ ONAY DURUMU: Bu karar KULLANICI TARAFINDAN TEYİT EDİLMEDİ.** K29
+  ile aynı gerekçeyle (autonomy ilkesi) agent tarafından tek başına
+  belirlenmiş sayısal değerlerdir.
+- **Seçilen (agent tarafından, tek başına):** `agent/loop_detector.py`
+  içinde:
+  - `SIMILARITY_THRESHOLD=0.85` (`difflib.SequenceMatcher.ratio()` ile
+    fuzzy benzerlik skoru - K19'un istediği "tam eşleşme değil" yaklaşımı).
+  - `REPEAT_THRESHOLD=3` (art arda kaç benzer BAŞARISIZ tool-call'dan
+    sonra tekrar/döngü sayılır).
+  - `AMBIGUITY_THRESHOLD=3` (art arda kaç belirsiz yanıttan sonra durulur).
+  - `MAX_TURNS_WITHOUT_PROGRESS=8` (toplam kaç turda ilerleme yoksa durulur).
+  - `_UNCERTAINTY_PHRASES` listesi (anahtar kelime tabanlı, TR/EN karışık:
+    "bilmiyorum", "emin değilim", "i'm not sure", "clarify" vb.) - K4'ün
+    belirsizlik tespiti heuristiği.
+- **Gerekçe (agent tarafından):** Bu değerler test edilebilir ve
+  makul başlangıç noktaları olarak seçildi, ama kullanıcı tarafından
+  doğrulanmadı. Gerçek kullanım sırasında (çok sık/çok seyrek tetiklenirse)
+  ayarlanması gerekebilir.
+
 ---
 
-## Henüz Karar Verilmemiş / Açık Konular
+## Kullanıcı Onayı Bekleyen Kararlar (Özet)
 
-Aşağıdaki konular tasarım planında yer aldı ama henüz kullanıcı tarafından
-teyit edilen ayrı bir "karar" statüsünde değil; implementasyon sırasında
-netleşecek teknik detaylardır:
+**Güncelleme (2026-07-27 03:16): Kullanıcı K29 ve K30'daki tüm değerleri
+onayladı** ("onaylıyorum devam et"). Bu iki karar artık teyit edilmiş
+statüde; ⚠️ işaretleri bilgi amaçlı geçmiş kayıt olarak korunuyor (K24
+kuralı - eski karar silinmez, güncelleme notu eklenir).
 
-- Loop detector'daki fuzzy benzerlik eşiğinin (örn. Levenshtein/parametre
-  benzerlik skoru) tam sayısal değeri.
-- Context özetleme tetikleme eşiği (token sayısı/oranı).
-- Belirsizlik tespiti için kullanılacak tam heuristik/regex seti.
+Aşağıdaki kararlar agent (Kiro) tarafından `autonomy` ilkesi çerçevesinde
+tek başına verilmiş sayısal/teknik değerlerdir. Kullanıcı tarafından
+AÇIKÇA onaylanmamıştır. Kullanıcı bunları istediği zaman sorgulayabilir,
+değiştirebilir veya onaylayabilir:
 
-Bu konular ilgili görev (Task 6, Task 8) uygulanırken netleştirilip bu dosyaya
-yeni bir karar kaydı olarak eklenecektir.
+- **K29** - Context özetleme: `0.75` eşik oranı, `4` mesaj korunumu,
+  `karakter/4` token tahmini. **[ONAYLANDI]**
+- **K30** - Loop detector: `SIMILARITY_THRESHOLD=0.85`, `REPEAT_THRESHOLD=3`,
+  `AMBIGUITY_THRESHOLD=3`, `MAX_TURNS_WITHOUT_PROGRESS=8`,
+  `_UNCERTAINTY_PHRASES` listesinin içeriği. **[ONAYLANDI]**
+
+Bu liste, gelecekte agent'ın kendi başına verdiği her yeni sayısal/teknik
+kararla güncellenecektir.
+
+### K31: Agent'ın Tek Başına Verdiği Kararların Şeffaflığı
+- **Seçilen:** Agent (Kiro), kullanıcının açıkça onaylamadığı, kendi
+  başına belirlediği her sayısal/teknik karar (eşik değeri, varsayılan
+  parametre, heuristik seçimi vb.) `DECISIONS.md`'de "⚠️ ONAY DURUMU: Bu
+  karar KULLANICI TARAFINDAN TEYİT EDİLMEDİ" notuyla açıkça işaretlenir
+  ve "Kullanıcı Onayı Bekleyen Kararlar" özet listesine eklenir. Bu,
+  kullanıcının hangi kararların kendisi tarafından onaylandığını, hangi
+  kararların agent'ın kendi tercihi olduğunu her zaman ayırt edebilmesini
+  sağlar.
+- **Gerekçe:** Kullanıcı, "implementasyon sırasında netleşecek teknik
+  detay" notunun kendi onayı anlamına gelmediğini, agent'ın kendi başına
+  verdiği kararların ayrıca ve açıkça belirtilmesi gerektiğini talep etti.

@@ -77,9 +77,47 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 8: Context yönetimi (özetleme)**
-- K13: context limiti yaklaşınca geçmiş, ayrı bir LLM çağrısıyla özetlenir.
-- Tetikleme eşiği (token sayısı/oranı) implementasyon sırasında netleşecek.
+**Task 9: Sistem promptu cilalama + uçtan uca gerçek görev testleri**
+- Agent'ın kimliğini/davranış kurallarını (K9 davranışı dahil) net bir
+  sistem promptuyla pekiştirmek.
+- Gerçek, çok adımlı bir görevle (örn. "bu projede X özelliğini ekle")
+  uçtan uca test.
+
+### Task 8 TAMAMLANDI - Context yönetimi (özetleme, K13)
+
+- `agent/context_manager.py` (yeni modül):
+  - `estimate_tokens()`: karakter/4 heuristiği ile kaba token tahmini
+    (tam tokenizer bağımlılığı eklenmedi - amaç kesin sayım değil, eşik
+    sinyali).
+  - `get_context_limit()`: sunucudan `/v1/models` üzerinden `meta.n_ctx`
+    değerini okur (gerçek sunucuda doğrulandı: 65536 doğru alındı),
+    alınamazsa `DEFAULT_N_CTX=8192`'e düşer.
+  - `should_summarize()`: mesaj sayısı `KEEP_RECENT_MESSAGES=4`'ün altında
+    ise VEYA tahmini token `context_limit * SUMMARIZE_THRESHOLD_RATIO=0.75`
+    altında ise özetleme gerekmez.
+  - `summarize_messages()`: system mesajlarını ve en son 4 mesajı korur,
+    aradaki eski mesajları AYRI BİR LLM ÇAĞRISIYLA (K13) tek bir özet
+    mesajına indirir.
+  - `maybe_summarize()`: `should_summarize` + `summarize_messages`'ı
+    birleştiren üst seviye fonksiyon, `repl()`'in kullandığı arayüz.
+- `agent/repl.py`: `repl()` döngüsüne entegre edildi - her turdan önce
+  `maybe_summarize()` çağrılır, özetleme olduysa kullanıcıya bilgi
+  mesajı gösterilir (`[Bağlam özetlendi: ...]`).
+- Testler:
+  - `tests/test_context_manager.py`: 12 test - 11 mock/birim (token tahmini,
+    eşik kontrolü - üstünde/altında/az mesaj durumu, context limit okuma -
+    başarı/hata, özetleme - system+recent korunumu, no-op durumu,
+    maybe_summarize entegrasyonu) + 1 gerçek sunucu entegrasyon testi.
+- Doğrulama:
+  - `./run_tests.sh` → 97 passed, 1 skipped (regresyon yok). Rapor:
+    `test_reports/test_report_20260727_030825.md`.
+  - Gerçek sunucu ile doğrulama: `get_context_limit()` gerçek modelden
+    `n_ctx=65536` değerini doğru okudu.
+  - Manuel uçtan uca demo: 12 mesajlık sahte bir geçmiş, `context_limit=200`
+    ile zorlanarak özetlemeye tabi tutuldu → 5 mesaja indirildi (1 gerçek
+    LLM-üretilmiş özet + son 4 mesaj), özet içeriği doğru yakaladı
+    ("Kullanıcı 4 adet dolgu mesajı gönderdi...").
+- Commit: (bu adımda atılacak).
 
 ### Task 7 TAMAMLANDI - Otonom mod aktivasyonu + REPL komutu
 
