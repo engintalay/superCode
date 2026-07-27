@@ -77,12 +77,44 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 7: Otonom mod aktivasyonu + REPL komutu**
-- Task 4'te `autonomous_mode` parametresi ve K8 mutlak sınırları zaten
-  koda eklendi; kalan iş: REPL'de bunu açıp kapatacak bir komut
-  (örn. `/autonomous on|off`) ve CLI flag'i.
-- Uçtan uca doğrulama: otonom modda K8 sınırlarının hâlâ çalıştığını
-  gerçek REPL üzerinden teyit etmek.
+**Task 8: Context yönetimi (özetleme)**
+- K13: context limiti yaklaşınca geçmiş, ayrı bir LLM çağrısıyla özetlenir.
+- Tetikleme eşiği (token sayısı/oranı) implementasyon sırasında netleşecek.
+
+### Task 7 TAMAMLANDI - Otonom mod aktivasyonu + REPL komutu
+
+- `agent/repl.py`:
+  - `_handle_autonomous_command()`: `/autonomous on|off|status` komutunu
+    işler, yeni mod + kullanıcıya gösterilecek mesajı döner. Bilinmeyen
+    argüman modu değiştirmez, hata mesajı gösterir.
+  - `repl()`: giriş döngüsünde `/autonomous` komutu tanınıyor, mod anlık
+    değişiyor (sonraki `run_turn` çağrılarına yansır). Başlangıç durumu
+    hâlâ `autonomous_mode` parametresiyle ayarlanabilir.
+  - `main()`: `--autonomous` CLI flag'i eklendi (`argv` parse ediliyor).
+  - Not: Task 4'te zaten kurulan `autonomous_mode` parametresi ve K8
+    mutlak sınırları (`agent/approval.py`) değişmedi - bu task sadece
+    REPL'de bunu açıp kapatacak kullanıcı arayüzünü ekledi.
+- Testler:
+  - `tests/test_repl.py`: 7 yeni test - `_handle_autonomous_command`
+    (on/off/status/bilinmeyen argüman), `repl()` içinde `/autonomous on`
+    yazınca sonraki `run_turn` çağrısının `autonomous_mode=True` ile
+    yapıldığının doğrulanması, `main()`'in `--autonomous` flag'ini doğru
+    parse ettiğinin (ve flag yoksa `False` kaldığının) doğrulanması.
+- Doğrulama:
+  - `./run_tests.sh` → 85 passed, 1 skipped (regresyon yok). Rapor:
+    `test_reports/test_report_20260727_025455.md`.
+  - Manuel demo (gerçek sunucu + gerçek REPL, uçtan uca):
+    1. `/autonomous status` → "KAPALI", `/autonomous on` → mod değişti,
+       `/autonomous status` → "AÇIK", `/autonomous off` → "KAPALI" - hepsi
+       doğru çalıştı.
+    2. Otonom mod AÇIK + normal (yıkıcı olmayan) `run_shell` komutu: 3/3
+       denemede `[ONAY GEREKLİ]` mesajı ÇIKMADI, komut direkt çalıştı
+       (`echo test1` → gerçek "test1" çıktısı üretti).
+    3. **K8 mutlak sınırı doğrulandı:** Otonom mod AÇIK + `rm -rf` komutu:
+       `[ONAY GEREKLİ]` mesajı YİNE ÇIKTI ("otonom mod bu tür işlemleri
+       asla otomatik onaylamaz (K8)" mesajıyla), "h" (hayır) ile reddedildi,
+       komut ÇALIŞTIRILMADI.
+- Commit: (bu adımda atılacak).
 
 ### Task 6 TAMAMLANDI - Loop/hata tespiti (Loop Detector)
 

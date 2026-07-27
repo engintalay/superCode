@@ -45,6 +45,7 @@ from agent.tool_parsing import extract_tool_call_from_content
 from agent.tools import TOOL_DEFINITIONS, ToolError, execute_tool
 
 EXIT_COMMANDS = {"/exit", "/quit"}
+AUTONOMOUS_COMMAND_PREFIX = "/autonomous"
 MAX_TOOL_HOPS = 5  # Aynı turda art arda kaç tool-call zincirine izin verilir.
 
 
@@ -205,12 +206,37 @@ def run_turn(
     return "Hata: Çok fazla ardışık tool çağrısı yapıldı (olası döngü), durduruldu."
 
 
+def _handle_autonomous_command(user_input: str, current_mode: bool) -> tuple[bool, str]:
+    """`/autonomous on|off|status` komutunu işler.
+
+    Döner: `(yeni_mod, kullanıcıya_gösterilecek_mesaj)`.
+    """
+    parts = user_input.split()
+    arg = parts[1].lower() if len(parts) > 1 else "status"
+
+    if arg == "on":
+        return True, (
+            "Otonom mod AÇIK: yazma/shell işlemleri onay istemeden çalışacak "
+            "(yıkıcı komutlar ve proje-dışı erişimler hariç - bunlar her zaman onay ister, K8)."
+        )
+    if arg == "off":
+        return False, "Otonom mod KAPALI: yazma/shell işlemleri tekrar onay isteyecek."
+    if arg == "status":
+        state = "AÇIK" if current_mode else "KAPALI"
+        return current_mode, f"Otonom mod şu an: {state}."
+
+    return current_mode, (
+        f"Bilinmeyen komut: '{user_input}'. Kullanım: {AUTONOMOUS_COMMAND_PREFIX} on|off|status"
+    )
+
+
 def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: bool = False) -> int:
     """Etkileşimli sohbet döngüsünü başlatır.
 
     Çıkış: `/exit`, `/quit`, veya Ctrl+D (EOFError) / Ctrl+C (KeyboardInterrupt).
-    `autonomous_mode=True` ise yazma/shell tool'ları onay istemeden çalışır
-    (K8'in mutlak sınırları - yıkıcı komut/proje-dışı erişim - hariç).
+    `autonomous_mode`: başlangıç durumu. Oturum içinde `/autonomous on|off|status`
+    komutuyla değiştirilebilir. AÇIKKEN de yazma/shell tool'ları için K8'in
+    mutlak sınırları (yıkıcı komut / proje-dışı erişim) geçerliliğini korur.
     """
     client = create_client(base_url=base_url)
     try:
@@ -223,7 +249,8 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: boo
     if autonomous_mode:
         print("Otonom mod AÇIK: yazma/shell işlemleri onay istemeden çalışacak")
         print("(yıkıcı komutlar ve proje-dışı erişimler hariç - bunlar her zaman onay ister).")
-    print("Çıkmak için /exit, /quit veya Ctrl+D kullanabilirsiniz.\n")
+    print("Çıkmak için /exit, /quit veya Ctrl+D kullanabilirsiniz.")
+    print(f"Otonom modu değiştirmek için: {AUTONOMOUS_COMMAND_PREFIX} on|off|status\n")
 
     messages: list[dict] = []
 
@@ -242,6 +269,10 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: boo
         if user_input.lower() in EXIT_COMMANDS:
             print("Görüşürüz.")
             return 0
+        if user_input.lower().startswith(AUTONOMOUS_COMMAND_PREFIX):
+            autonomous_mode, message = _handle_autonomous_command(user_input, autonomous_mode)
+            print(message)
+            continue
 
         messages.append({"role": "user", "content": user_input})
 
@@ -255,8 +286,12 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: boo
         print(reply)
 
 
-def main() -> int:
-    return repl()
+def main(argv: list[str] | None = None) -> int:
+    import sys
+
+    argv = sys.argv[1:] if argv is None else argv
+    autonomous_mode = "--autonomous" in argv
+    return repl(autonomous_mode=autonomous_mode)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ Tamamlanan task'lar:
 - **Task 4** — Onay mekanizması (Approval Gate) + `run_shell` tool'u
 - **Task 5** — `edit_file` tool'u (Aider-tarzı search/replace formatı)
 - **Task 6** — Loop/hata tespiti (Loop Detector)
+- **Task 7** — Otonom mod aktivasyonu + `/autonomous` REPL komutu
 
 ## Gereksinimler
 
@@ -44,6 +45,15 @@ Etkileşimli sohbet/agent modunu başlatmak için:
 uv run python -m agent.repl
 ```
 
+Otonom modda başlatmak için (yazma/shell işlemleri onay istemez - yıkıcı
+komutlar ve proje-dışı erişimler hariç):
+
+```bash
+uv run python -m agent.repl --autonomous
+```
+
+Oturum içinde otonom modu açıp kapatmak için: `/autonomous on|off|status`.
+
 Çıkmak için `/exit`, `/quit` veya Ctrl+D.
 
 Tek seferlik basit bir mesaj göndermek için (tool'suz):
@@ -60,8 +70,9 @@ uv run python -m agent.llm_client "merhaba de"
   (proje dizini dışına path traversal engellenir)
 - `run_shell` tool'u (varsayılan olarak kullanıcı onayı gerektirir)
 - Onay mekanizması: yazma/shell işlemleri onay ister; otonom mod ile
-  atlanabilir, ancak yıkıcı komutlar ve proje-dışı erişimler otonom modda
-  da her zaman onay ister (mutlak güvenlik sınırı)
+  atlanabilir (`/autonomous on|off|status` komutu veya `--autonomous`
+  CLI flag'i ile), ancak yıkıcı komutlar ve proje-dışı erişimler otonom
+  modda da her zaman onay ister (mutlak güvenlik sınırı)
 - Native tool-calling (model destekliyorsa) + content içine gömülü
   tool-call JSON'u için fallback ayrıştırma
 

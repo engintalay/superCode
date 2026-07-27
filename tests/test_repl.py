@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent.llm_client import create_client, get_model_id
-from agent.repl import EXIT_COMMANDS, repl, run_turn
+from agent.repl import AUTONOMOUS_COMMAND_PREFIX, EXIT_COMMANDS, _handle_autonomous_command, main, repl, run_turn
 from tests._server_check import server_available
 
 requires_server = pytest.mark.skipif(
@@ -340,3 +340,81 @@ def test_repl_connection_error_returns_nonzero(capsys, monkeypatch) -> None:
 
     assert exit_code == 1
     assert "bağlanılamadı" in capsys.readouterr().out
+
+
+def test_handle_autonomous_command_on() -> None:
+    new_mode, message = _handle_autonomous_command("/autonomous on", current_mode=False)
+    assert new_mode is True
+    assert "AÇIK" in message
+
+
+def test_handle_autonomous_command_off() -> None:
+    new_mode, message = _handle_autonomous_command("/autonomous off", current_mode=True)
+    assert new_mode is False
+    assert "KAPALI" in message
+
+
+def test_handle_autonomous_command_status_does_not_change_mode() -> None:
+    new_mode, message = _handle_autonomous_command("/autonomous status", current_mode=True)
+    assert new_mode is True
+    assert "AÇIK" in message
+
+    new_mode, message = _handle_autonomous_command("/autonomous", current_mode=False)
+    assert new_mode is False
+    assert "KAPALI" in message
+
+
+def test_handle_autonomous_command_unknown_arg_does_not_change_mode() -> None:
+    new_mode, message = _handle_autonomous_command("/autonomous foo", current_mode=True)
+    assert new_mode is True
+    assert "Bilinmeyen komut" in message
+
+
+def test_repl_autonomous_command_toggles_mode_within_session(capsys, monkeypatch) -> None:
+    """Kullanıcı oturum içinde /autonomous on yazıp ardından bir shell komutu
+    isteyince, artık onay istenmeden (autonomous_mode=True ile) run_turn'ün
+    çağrıldığını doğrular."""
+    fake_client = MagicMock()
+    inputs = iter(["/autonomous on", "bir şey yap", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    captured_autonomous_values = []
+
+    def fake_run_turn(client, model_id, messages, root=".", autonomous_mode=False, **kwargs):
+        captured_autonomous_values.append(autonomous_mode)
+        return "tamam"
+
+    with (
+        patch("agent.repl.create_client", return_value=fake_client),
+        patch("agent.repl.get_model_id", return_value="fake-model"),
+        patch("agent.repl.run_turn", side_effect=fake_run_turn),
+    ):
+        exit_code = repl()
+
+    assert exit_code == 0
+    assert captured_autonomous_values == [True]
+    assert "Otonom mod AÇIK" in capsys.readouterr().out
+
+
+def test_main_parses_autonomous_flag(monkeypatch) -> None:
+    captured = {}
+
+    def fake_repl(autonomous_mode=False):
+        captured["autonomous_mode"] = autonomous_mode
+        return 0
+
+    monkeypatch.setattr("agent.repl.repl", fake_repl)
+    main(["--autonomous"])
+    assert captured["autonomous_mode"] is True
+
+
+def test_main_without_flag_defaults_to_non_autonomous(monkeypatch) -> None:
+    captured = {}
+
+    def fake_repl(autonomous_mode=False):
+        captured["autonomous_mode"] = autonomous_mode
+        return 0
+
+    monkeypatch.setattr("agent.repl.repl", fake_repl)
+    main([])
+    assert captured["autonomous_mode"] is False
