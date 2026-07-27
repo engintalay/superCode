@@ -77,11 +77,42 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Task 9: Sistem promptu cilalama + uçtan uca gerçek görev testleri**
-- Agent'ın kimliğini/davranış kurallarını (K9 davranışı dahil) net bir
-  sistem promptuyla pekiştirmek.
-- Gerçek, çok adımlı bir görevle (örn. "bu projede X özelliğini ekle")
-  uçtan uca test.
+**Faz 1 (MVP) TAMAMLANDI.** Sıradaki adım Faz 2: Task 10-11 (paralellik,
+K20-K23'te tanımlı, `llama-server --parallel N` ile paralel tool
+execution altyapısı). Kullanıcı onayı ile başlanacak.
+
+### Task 9 TAMAMLANDI - Sistem promptu cilalama + uçtan uca gerçek görev testleri
+
+- `agent/system_prompt.py` (yeni modül):
+  - `SYSTEM_PROMPT`: agent kimliği, elindeki tool'lar, ve 6 davranış kuralı
+    - en önemlisi K9'un önceliği: "Emin olmadığın... durumda KENDİ KENDİNE
+      ISRARLA DENEMEYE DEVAM ETME... Döngüye girmemek, tahmin etmekten
+      daha önemlidir." Ayrıca onay mekanizmasının model kontrolünde
+      OLMADIĞI, edit_file/run_shell'in SEARCH bloğu birebir eşleşme
+      gerektirdiği gibi pratik kurallar da eklendi.
+  - `build_initial_messages()`: mesaj listesinin başına sistem promptunu
+    ekler, var olan bir system mesajının üzerine yazmaz (idempotent).
+  - `agent/repl.py`'nin `repl()` fonksiyonuna entegre edildi - REPL artık
+    her oturumda sistem promptuyla başlıyor.
+- Testler:
+  - `tests/test_system_prompt.py`: 4 birim testi (boş listede ekleme,
+    var olan mesajların önüne ekleme, duplicate önleme, kritik davranış
+    kurallarının (döngü/onay/tool adları) promptta var olduğunun kontrolü).
+- Doğrulama:
+  - `./run_tests.sh` → 101 passed, 1 skipped (regresyon yok). Rapor:
+    `test_reports/test_report_20260727_032652.md`.
+  - **Uçtan uca gerçek görev testi** (asıl Task 9 gereksinimi): Gerçek bir
+    proje dosyası (`calculator.py`, `add`/`subtract` fonksiyonları) üzerinde
+    çok adımlı bir görev verildi: "dosyayı oku, içine multiply fonksiyonu
+    ekle". Model `read_file` ile dosyayı okudu, ardından `edit_file` ile
+    `multiply` fonksiyonunu MEVCUT STİLE UYGUN şekilde ekledi (onay
+    akışından geçerek). Sonuç Python ile çalıştırılıp doğrulandı:
+    `multiply(5, 6) == 30` doğru sonuç verdi, `add`/`subtract` da
+    bozulmadı. 3 denemeden 1'i model non-determinism'i nedeniyle boş
+    yanıt verdi (bilinen, kod hatası değil) - bu risk sistem promptunda
+    ele alınamayacak bir model davranış sınırlaması, Task 6'nın loop
+    detector'ı bu tür durumları (ardışık tekrar/belirsizlik) yakalıyor.
+- Commit: (bu adımda atılacak).
 
 ### Task 8 TAMAMLANDI - Context yönetimi (özetleme, K13)
 

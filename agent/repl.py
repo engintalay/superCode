@@ -1,7 +1,8 @@
 """Etkileşimli REPL döngüsü + tool-calling agent loop + onay mekanizması
-+ loop/hata tespiti + context yönetimi.
++ loop/hata tespiti + context yönetimi + sistem promptu.
 
 Karar referansları (bkz. DECISIONS.md):
+- K3: Agent kapsamı (tam agentic, tool'lar + erken durma önceliği).
 - K12: Etkileşimli REPL/chat modu.
 - K13: Context/geçmiş yönetimi - context limitine yaklaşılınca geçmiş
   ayrı bir LLM çağrısıyla özetlenir (bkz. `agent/context_manager.py`).
@@ -43,6 +44,7 @@ from agent.approval import prompt_user_confirmation, requires_approval
 from agent.context_manager import get_context_limit, maybe_summarize
 from agent.llm_client import DEFAULT_BASE_URL, create_client, get_model_id
 from agent.loop_detector import LoopDetector, contains_uncertainty_phrase, summarize_loop_detection
+from agent.system_prompt import build_initial_messages
 from agent.tool_parsing import extract_tool_call_from_content
 from agent.tools import TOOL_DEFINITIONS, ToolError, execute_tool
 
@@ -255,7 +257,7 @@ def repl(base_url: str = DEFAULT_BASE_URL, root: str = ".", autonomous_mode: boo
     print(f"Otonom modu değiştirmek için: {AUTONOMOUS_COMMAND_PREFIX} on|off|status\n")
 
     context_limit = get_context_limit(client, model_id)
-    messages: list[dict] = []
+    messages: list[dict] = build_initial_messages()
 
     while True:
         try:

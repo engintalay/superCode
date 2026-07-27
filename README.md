@@ -10,8 +10,8 @@ durumlarda döngüye girmeden durup kullanıcıya bilgi vermesi.
 
 ## Durum
 
-Aktif geliştirme aşamasında (MVP / Faz 1). Tüm gereksinim ve tasarım
-kararları [`DECISIONS.md`](./DECISIONS.md)'de, ilerleme durumu
+Faz 1 (MVP) TAMAMLANDI. Tüm gereksinim ve tasarım kararları
+[`DECISIONS.md`](./DECISIONS.md)'de, ilerleme durumu
 [`PROGRESS.md`](./PROGRESS.md)'de tutuluyor.
 
 Tamamlanan task'lar:
@@ -24,6 +24,9 @@ Tamamlanan task'lar:
 - **Task 6** — Loop/hata tespiti (Loop Detector)
 - **Task 7** — Otonom mod aktivasyonu + `/autonomous` REPL komutu
 - **Task 8** — Context yönetimi (özetleme)
+- **Task 9** — Sistem promptu cilalama + uçtan uca gerçek görev testleri
+
+Sıradaki adım Faz 2 (paralellik, Task 10-11) - kullanıcı onayıyla başlanacak.
 
 ## Gereksinimler
 
@@ -79,6 +82,8 @@ uv run python -m agent.llm_client "merhaba de"
   mesajlar korunur)
 - Native tool-calling (model destekliyorsa) + content içine gömülü
   tool-call JSON'u için fallback ayrıştırma
+- Sistem promptu: agent kimliği, tool kuralları ve döngüye girmeden
+  durma önceliğini net şekilde ifade eden bir sistem mesajıyla başlar
 
 ## Test Çalıştırma
 
@@ -102,6 +107,10 @@ agent/
   repl.py           # Etkileşimli REPL + tool-calling agent loop
   tools.py          # read_file / glob_search / grep_search implementasyonları
   tool_parsing.py   # content'e gömülü tool-call JSON'u için fallback parser
+  approval.py       # Onay mekanizması (K7/K8) - requires_approval, prompt_user_confirmation
+  loop_detector.py  # Loop/hata tespiti (K4/K9/K19)
+  context_manager.py # Context özetleme (K13)
+  system_prompt.py  # Agent kimliği ve davranış kuralları (sistem promptu)
 tests/              # pytest test suite'i
 test_reports/       # ./run_tests.sh tarafından üretilen tarihli test raporları
 DECISIONS.md        # Tüm proje/tasarım kararları (kronolojik, kalıcı)
