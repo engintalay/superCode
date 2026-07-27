@@ -455,3 +455,29 @@ kararla güncellenecektir.
 - **Gerekçe:** Kullanıcı, "implementasyon sırasında netleşecek teknik
   detay" notunun kendi onayı anlamına gelmediğini, agent'ın kendi başına
   verdiği kararların ayrıca ve açıkça belirtilmesi gerektiğini talep etti.
+
+### K32: Sistem Genelinde Kurulum
+- **Seçilen:** `pyproject.toml`'a `[project.scripts]` girişi eklendi
+  (`supercode = "agent.repl:main"`), build sistemi olarak `hatchling`
+  seçildi. `uv tool install --editable .` ile `~/.local/bin/supercode`
+  altına bir çalıştırılabilir kuruluyor - herhangi bir dizinden
+  `supercode` komutu çalıştırıldığında, o dizin otomatik olarak proje
+  kökü (`root`) kabul ediliyor (`repl()`'in varsayılan `root="."`
+  parametresi zaten `os.getcwd()`'e eşdeğer, ekstra kod değişikliği
+  gerekmedi).
+- **Elenen seçenekler:**
+  - Shell alias/fonksiyon (`.bashrc`'ye eklemek) - kullanıcının shell
+    yapılandırmasına bağımlı, taşınabilir değil, elendi.
+  - `pip install -e .` + manuel PATH ekleme - `uv` ekosistemine daha
+    az uygun, `uv tool install` zaten aynı işi daha temiz yapıyor.
+- **Gerekçe:** Kullanıcı, agent'ın sistem genelinde (herhangi bir
+  proje dizininden) çalışmasını istedi. `uv tool install --editable`
+  seçildi çünkü kod değişikliklerinde yeniden kurulum gerektirmiyor.
+- **Doğrulama:** `uv tool install --editable .` çalıştırıldı, `which
+  supercode` → `/home/engintalay/.local/bin/supercode` bulundu.
+  `/tmp/baska_bir_proje` dizininde `ornek.py` oluşturulup `supercode`
+  çalıştırıldı - model `read_file` ile dosyayı gerçekten okudu, bu da
+  `root`'un doğru şekilde çalıştırılan dizine ayarlandığını kanıtladı
+  (superCode'un kendi dizini değil). `./run_tests.sh` → 118 passed,
+  1 skipped, regresyon yok.
+

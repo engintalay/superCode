@@ -112,6 +112,35 @@ Agent, çalıştırıldığı dizini "proje kökü" kabul eder ve tüm dosya
 işlemlerini (`read_file`, `edit_file`, `glob_search`, `grep_search`,
 `run_shell`) bu dizinle sınırlar (path traversal engellenir).
 
+## 4b. Sistem Genelinde Kurulum (İsteğe Bağlı)
+
+Yukarıdaki `uv run python -m agent.repl` komutu sadece superCode dizini
+içinden çalışır. Herhangi bir dizinden `supercode` komutunu
+çalıştırabilmek için (o dizini otomatik olarak proje kökü kabul eder):
+
+```bash
+uv tool install --editable /path/to/superCode
+```
+
+Bu, `~/.local/bin/supercode` altına bir çalıştırılabilir kurar
+(`~/.local/bin`'in `PATH`'te olması gerekir - çoğu Linux dağıtımında
+varsayılan olarak eklidir). `--editable` flag'i sayesinde `agent/`
+kodunda yaptığınız değişiklikler için tekrar kurmanıza gerek kalmaz.
+
+Kurulumdan sonra, herhangi bir proje dizininde:
+
+```bash
+cd /path/to/baska/bir/proje
+supercode              # etkileşimli mod
+supercode --autonomous # otonom mod
+```
+
+**Kaldırmak için:**
+
+```bash
+uv tool uninstall supercode
+```
+
 ## 5. Kurulumu Doğrulama (Test Suite)
 
 ```bash

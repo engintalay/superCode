@@ -81,6 +81,18 @@ Faz 2 (Task 10-11) TAMAMLANDI. Proje şu an tüm planlanan task'ları (1-11)
 tamamlamış durumda. Olası sonraki adımlar: kullanıcı geri bildirimine göre
 iyileştirme, yeni tool'lar, veya kullanıcının belirleyeceği başka bir yön.
 
+### Ek: Sistem genelinde kurulum (K32)
+
+Kullanıcı, agent'ın herhangi bir dizinden çalıştırılabilmesini istedi.
+`pyproject.toml`'a `[project.scripts]` (`supercode = "agent.repl:main"`)
+ve `hatchling` build sistemi eklendi. `uv tool install --editable .` ile
+`~/.local/bin/supercode` kuruldu. Doğrulama: `/tmp/baska_bir_proje`
+dizininde bir dosya oluşturulup `supercode` çalıştırıldı, model gerçekten
+o dizindeki dosyayı okudu (superCode'un kendi dizinini değil) - `root`
+davranışı doğru çalışıyor. `./run_tests.sh` → 118 passed, 1 skipped,
+regresyon yok. Kaldırma: `uv tool uninstall supercode`.
+Dokümantasyon: `INSTALL.md` bölüm 4b, `README.md` linki.
+
 ### Faz 2 TAMAMLANDI - Task 10 & 11 (Paralellik)
 
 **Ön-doğrulama (K22):** Task 10'a başlamadan önce, kullanıcının 8079

@@ -77,6 +77,9 @@ Tek seferlik basit bir mesaj göndermek için (tool'suz):
 uv run python -m agent.llm_client "merhaba de"
 ```
 
+Herhangi bir dizinden `supercode` komutuyla çalıştırmak için (sistem
+genelinde kurulum), bkz. [`INSTALL.md`](./INSTALL.md#4b-sistem-genelinde-kurulum-isteğe-bağlı).
+
 ## Mevcut Özellikler
 
 - llama-server ile OpenAI-uyumlu `/v1/chat/completions` üzerinden sohbet
