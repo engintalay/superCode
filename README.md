@@ -40,6 +40,15 @@ Tamamlanan task'lar:
 ## Kurulum
 
 ```bash
+./install.sh
+```
+
+Bu, Python/`uv` kontrolü, bağımlılık kurulumu ve llama-server bağlantı
+kontrolünü otomatik yapar. Ayrıntılı kurulum talimatları (llama-server
+başlatma, sorun giderme dahil) için [`INSTALL.md`](./INSTALL.md)'ye
+bakın. Manuel kurulum için:
+
+```bash
 uv sync
 ```
 
@@ -117,6 +126,8 @@ tests/              # pytest test suite'i
 test_reports/       # ./run_tests.sh tarafından üretilen tarihli test raporları
 DECISIONS.md        # Tüm proje/tasarım kararları (kronolojik, kalıcı)
 PROGRESS.md         # Task bazlı ilerleme durumu, oturumlar arası devam notu
+install.sh          # Kurulum script'i (bağımlılık + sunucu kontrolü)
+INSTALL.md          # Ayrıntılı kurulum ve sorun giderme kılavuzu
 run_tests.sh         # Test suite'ini çalıştırıp rapor üreten script
 ```
 
