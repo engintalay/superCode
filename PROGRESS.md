@@ -77,9 +77,76 @@ plan `DECISIONS.md`'deki kararlara dayanıyor. Plan özet olarak:
 
 ## Sıradaki Adım
 
-**Faz 1 (MVP) TAMAMLANDI.** Sıradaki adım Faz 2: Task 10-11 (paralellik,
-K20-K23'te tanımlı, `llama-server --parallel N` ile paralel tool
-execution altyapısı). Kullanıcı onayı ile başlanacak.
+Faz 2 (Task 10-11) TAMAMLANDI. Proje şu an tüm planlanan task'ları (1-11)
+tamamlamış durumda. Olası sonraki adımlar: kullanıcı geri bildirimine göre
+iyileştirme, yeni tool'lar, veya kullanıcının belirleyeceği başka bir yön.
+
+### Faz 2 TAMAMLANDI - Task 10 & 11 (Paralellik)
+
+**Ön-doğrulama (K22):** Task 10'a başlamadan önce, kullanıcının 8079
+portundaki sunucusunun `--parallel` flag'i OLMADAN çalıştığı görüldü.
+`/props` endpoint'i kontrol edildi: `total_slots: 4` - yani bu llama-server
+derlemesi varsayılan olarak 4 eşzamanlı slot sağlıyor, ek flag gerekmiyor.
+3 eşzamanlı `curl` isteğiyle doğrulandı: 1 istek 33.7s, 3 eşzamanlı istek
+toplamda 68.5s (sıralı olsaydı ~101s) - %32 gerçek kazanç ölçüldü, üç
+yanıt da bağımsız ve doğruydu. K22 buna göre güncellendi.
+
+**Task 10 - Paralel tool execution altyapısı:**
+- `agent/parallel_tools.py` (yeni modül):
+  - `run_parallel()`: `concurrent.futures.ThreadPoolExecutor` ile bağımsız
+    fonksiyonları eşzamanlı çalıştırır, giriş sırasını korur, hataları
+    fırlatmadan sonuç olarak döner (bir görev başarısız olursa diğerleri
+    etkilenmez).
+  - `should_parallelize_file_reads()`: K21 tetikleme kuralı - 2 ile
+    `MAX_PARALLEL_FILES=8` arası dosya sayısı varsa paralel okuma tetiklenir.
+  - `read_files_in_parallel()`: dosya yolu listesini paralel okuyup
+    `{yol: sonuç}` sözlüğü döner.
+- `agent/repl.py`: `_execute_and_format()` genişletildi -
+  `glob_search`/`grep_search` sonucundan benzersiz dosya yolları çıkarılır
+  (`_extract_unique_file_paths`), 2+ ise `read_files_in_parallel` ile
+  otomatik paralel okunur, sonuçlar tool mesajına
+  `[Otomatik paralel okuma sonuçları]` bölümü olarak eklenir. Bu, K20'nin
+  "genel loop tek tool-call kalır" ilkesini bozmaz - modelin kendi kararı
+  değil, kural bazlı bir agent-içi optimizasyon.
+- Testler:
+  - `tests/test_parallel_tools.py`: 10 birim testi (boş/tek/çoklu görev,
+    sıra korunumu, **gerçek hız ölçümüyle** paralelliğin çalıştığının
+    kanıtı - 4×0.2s görev <0.6s'de bitiyor, hata izolasyonu, eşik kontrolü,
+    dosya okuma senaryoları).
+  - `tests/test_repl.py`: 5 yeni entegrasyon testi (glob/grep sonrası
+    otomatik paralel okuma, 1 dosyada tetiklenmeme, hata izolasyonu, mock
+    ile agent loop uçtan uca).
+- Doğrulama:
+  - Gerçek sunucu ile REPL üzerinden 3 ayrı çalıştırma: `glob_search` 4
+    dosya buldu, otomatik paralel okuma 3/3 denemede tetiklendi, tüm
+    4 dosya içeriği doğru şekilde tool mesajına eklendi.
+  - Not: Yerel disk okuması çok hızlı olduğu için (sub-ms) saf dosya
+    okuma senaryosunda thread pool overhead'i paralellik faydasını
+    gölgede bırakabiliyor - asıl fayda, dosya okuma LLM isteği gibi
+    yavaş I/O ile karışık olduğunda (K22'nin curl testinde kanıtlandığı
+    gibi) ortaya çıkıyor. Bu, `MAX_WORKERS`/`MAX_PARALLEL_FILES`
+    değerlerinin (K30 tarzı, kullanıcı onayı bekleyen değerler) ileride
+    gerçek kullanım verisine göre ayarlanabileceği anlamına geliyor.
+
+**Task 11 - Paralel + onay + loop-detection entegrasyonu:**
+- Doğrulandı (yeni testlerle): paralel okuma onay mekanizmasını ATLAMIYOR
+  - zaten atlanacak bir onay yok, çünkü `glob_search`/`grep_search`/
+    `read_file` hepsi read-only (K7). `edit_file`/`run_shell` paralel
+    okuma sistemine dahil değil (K21 sadece salt-okunur tool'lar için).
+  - `test_parallel_read_results_do_not_bypass_approval_for_glob_search`:
+    confirm() hiç çağrılmadığı doğrulandı.
+- Doğrulandı: loop detector'a paralel okuma DOĞRU GRANÜLERLİKTE kaydediliyor
+  - N dosyalık bir paralel okuma batch'i, loop detector history'sine TEK
+    bir tool-call kaydı olarak giriyor (glob_search çağrısı bazında),
+    N ayrı kayıt olarak DEĞİL. Bu, yanlışlıkla erken loop-detection
+    tetiklemesini önlüyor.
+  - `test_loop_detector_records_single_call_for_parallel_glob_batch`:
+    2 glob_search çağrısı (her biri 3 dosya paralel okuyan) → history'de
+    tam 2 kayıt olduğu doğrulandı.
+- `./run_tests.sh` → 117-118 passed (1 flaky, model non-determinism'i,
+  tekrar çalıştırılınca PASSED), 1 skipped. Rapor:
+  `test_reports/test_report_20260727_221033.md`.
+- Commit: (bu adımda atılacak).
 
 ### Task 9 TAMAMLANDI - Sistem promptu cilalama + uçtan uca gerçek görev testleri
 

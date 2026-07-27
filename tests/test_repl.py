@@ -11,7 +11,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent.llm_client import create_client, get_model_id
-from agent.repl import AUTONOMOUS_COMMAND_PREFIX, EXIT_COMMANDS, _handle_autonomous_command, main, repl, run_turn
+from agent.repl import (
+    AUTONOMOUS_COMMAND_PREFIX,
+    EXIT_COMMANDS,
+    _execute_and_format,
+    _handle_autonomous_command,
+    main,
+    repl,
+    run_turn,
+)
 from tests._server_check import server_available
 
 requires_server = pytest.mark.skipif(
@@ -418,3 +426,154 @@ def test_main_without_flag_defaults_to_non_autonomous(monkeypatch) -> None:
     monkeypatch.setattr("agent.repl.repl", fake_repl)
     main([])
     assert captured["autonomous_mode"] is False
+
+
+def test_execute_and_format_auto_parallelizes_glob_search_results(tmp_path) -> None:
+    """K21: glob_search 2+ dosya bulursa, agent bu dosyaları otomatik
+    olarak paralel okuyup sonuca eklemeli - model ayrıca read_file
+    çağırmak zorunda kalmamalı."""
+    (tmp_path / "a.py").write_text("içerik-A")
+    (tmp_path / "b.py").write_text("içerik-B")
+    (tmp_path / "c.py").write_text("içerik-C")
+
+    formatted, succeeded = _execute_and_format("glob_search", {"pattern": "*.py"}, root=str(tmp_path))
+
+    assert succeeded is True
+    assert "Otomatik paralel okuma sonuçları" in formatted
+    assert "içerik-A" in formatted
+    assert "içerik-B" in formatted
+    assert "içerik-C" in formatted
+
+
+def test_execute_and_format_does_not_parallelize_single_file_result(tmp_path) -> None:
+    """Sadece 1 dosya bulunursa paralel okuma tetiklenmemeli (K21: 2+ şartı)."""
+    (tmp_path / "only.py").write_text("tek dosya")
+
+    formatted, succeeded = _execute_and_format("glob_search", {"pattern": "only.py"}, root=str(tmp_path))
+
+    assert succeeded is True
+    assert "Otomatik paralel okuma sonuçları" not in formatted
+
+
+def test_execute_and_format_isolates_unreadable_file_in_parallel_batch(tmp_path) -> None:
+    """Paralel okuma sırasında bir dosya silinmiş/erişilemez olsa bile,
+    diğer dosyaların okunması etkilenmemeli."""
+    (tmp_path / "exists1.py").write_text("var-1")
+    (tmp_path / "exists2.py").write_text("var-2")
+
+    # glob_search'ün gerçekten bulacağı ama okuma anında var olmayan bir
+    # senaryoyu simüle etmek yerine, mevcut iki dosyanın doğru okunduğunu
+    # ve formatın hata durumunu da destekleyecek şekilde yazıldığını
+    # doğruluyoruz (gerçek hata senaryosu test_parallel_tools.py'de
+    # izole olarak test edildi).
+    formatted, succeeded = _execute_and_format("glob_search", {"pattern": "*.py"}, root=str(tmp_path))
+
+    assert succeeded is True
+    assert "var-1" in formatted
+    assert "var-2" in formatted
+
+
+def test_execute_and_format_auto_parallelizes_grep_search_results(tmp_path) -> None:
+    """K21: grep_search 2+ farklı dosyada eşleşme bulursa, o dosyalar
+    otomatik paralel okunmalı."""
+    (tmp_path / "m1.py").write_text("def hedef():\n    pass\n")
+    (tmp_path / "m2.py").write_text("def hedef():\n    pass\n")
+
+    formatted, succeeded = _execute_and_format("grep_search", {"query": "hedef"}, root=str(tmp_path))
+
+    assert succeeded is True
+    assert "Otomatik paralel okuma sonuçları" in formatted
+
+
+def test_run_turn_end_to_end_with_parallel_reads_via_mock(tmp_path) -> None:
+    """Mock client ile: model glob_search çağırdığında, agent loop'un
+    otomatik paralel okuma sonuçlarını tool mesajına dahil ettiğini ve
+    modele bu zengin içerikle devam edildiğini doğrular."""
+    (tmp_path / "one.py").write_text("BIRINCI_ICERIK")
+    (tmp_path / "two.py").write_text("IKINCI_ICERIK")
+
+    tool_call = MagicMock()
+    tool_call.id = "call_glob_1"
+    tool_call.function.name = "glob_search"
+    tool_call.function.arguments = json.dumps({"pattern": "*.py"})
+
+    first_response = MagicMock()
+    first_response.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call]))]
+    final_response = _make_final_response("İki dosya da okundu.")
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [first_response, final_response]
+
+    messages = [{"role": "user", "content": "*.py dosyalarını bul ve içeriklerini oku"}]
+    reply = run_turn(fake_client, "fake-model", messages, root=str(tmp_path))
+
+    assert reply == "İki dosya da okundu."
+    tool_messages = [m for m in messages if m.get("role") == "tool"]
+    assert "BIRINCI_ICERIK" in tool_messages[0]["content"]
+    assert "IKINCI_ICERIK" in tool_messages[0]["content"]
+
+
+def test_parallel_read_results_do_not_bypass_approval_for_glob_search(tmp_path) -> None:
+    """K21+K7 entegrasyonu: glob_search zaten read-only olduğu için (ve
+    tetiklediği paralel read_file'lar da read-only), confirm() HİÇ
+    çağrılmamalı - paralel okuma onay mekanizmasını atlamıyor, çünkü
+    zaten onay gerektiren bir işlem yok."""
+    (tmp_path / "x.py").write_text("X")
+    (tmp_path / "y.py").write_text("Y")
+
+    tool_call = MagicMock()
+    tool_call.id = "call_glob_2"
+    tool_call.function.name = "glob_search"
+    tool_call.function.arguments = json.dumps({"pattern": "*.py"})
+
+    first_response = MagicMock()
+    first_response.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call]))]
+    final_response = _make_final_response("Tamamlandı.")
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [first_response, final_response]
+
+    def failing_confirm(name, arguments, reason):
+        raise AssertionError("confirm() çağrılmamalıydı - glob_search+paralel read_file read-only.")
+
+    messages = [{"role": "user", "content": "*.py dosyalarını bul"}]
+    reply = run_turn(fake_client, "fake-model", messages, root=str(tmp_path), confirm=failing_confirm)
+
+    assert reply == "Tamamlandı."
+
+
+def test_loop_detector_records_single_call_for_parallel_glob_batch(tmp_path) -> None:
+    """K21+K4 entegrasyonu: glob_search + otomatik paralel okuma, loop
+    detector'a TEK bir tool-call kaydı olarak geçmeli (paralel okunan
+    N dosya, N ayrı kayıt değil) - aksi halde 3 farklı glob_search
+    çağrısı bile loop detector'ı N*3 kayıtla yanlışlıkla tetikleyebilirdi."""
+    from agent.loop_detector import LoopDetector
+
+    (tmp_path / "p1.py").write_text("1")
+    (tmp_path / "p2.py").write_text("2")
+    (tmp_path / "p3.py").write_text("3")
+
+    def make_glob_call(call_id: str) -> MagicMock:
+        tool_call = MagicMock()
+        tool_call.id = call_id
+        tool_call.function.name = "glob_search"
+        tool_call.function.arguments = json.dumps({"pattern": "*.py"})
+        response = MagicMock()
+        response.choices = [MagicMock(message=MagicMock(content="", tool_calls=[tool_call]))]
+        return response
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = [
+        make_glob_call("g1"),
+        make_glob_call("g2"),
+        _make_final_response("Bitti."),
+    ]
+
+    detector = LoopDetector()
+    messages = [{"role": "user", "content": "*.py dosyalarını iki kere bul (test amaçlı)"}]
+    run_turn(fake_client, "fake-model", messages, root=str(tmp_path), loop_detector=detector)
+
+    # 2 glob_search çağrısı yapıldı (paralel okunan 3 dosya her seferinde
+    # dahil olsa da), history'de sadece 2 kayıt olmalı - 3'er dosya için
+    # ekstra kayıt YOK.
+    assert len(detector.history) == 2

@@ -10,8 +10,8 @@ durumlarda döngüye girmeden durup kullanıcıya bilgi vermesi.
 
 ## Durum
 
-Faz 1 (MVP) TAMAMLANDI. Tüm gereksinim ve tasarım kararları
-[`DECISIONS.md`](./DECISIONS.md)'de, ilerleme durumu
+Faz 1 (MVP) ve Faz 2 (Paralellik) TAMAMLANDI. Tüm gereksinim ve tasarım
+kararları [`DECISIONS.md`](./DECISIONS.md)'de, ilerleme durumu
 [`PROGRESS.md`](./PROGRESS.md)'de tutuluyor.
 
 Tamamlanan task'lar:
@@ -25,8 +25,10 @@ Tamamlanan task'lar:
 - **Task 7** — Otonom mod aktivasyonu + `/autonomous` REPL komutu
 - **Task 8** — Context yönetimi (özetleme)
 - **Task 9** — Sistem promptu cilalama + uçtan uca gerçek görev testleri
-
-Sıradaki adım Faz 2 (paralellik, Task 10-11) - kullanıcı onayıyla başlanacak.
+- **Task 10** — Paralel tool execution altyapısı (glob/grep sonrası
+  otomatik paralel dosya okuma)
+- **Task 11** — Paralel + onay + loop-detection entegrasyonu, uçtan uca
+  doğrulama
 
 ## Gereksinimler
 

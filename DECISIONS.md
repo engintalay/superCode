@@ -279,6 +279,15 @@ girmeden durup kullanıcıya bilgi vermesi.
     RAM/VRAM kullanımı (aynı modelin N kere yüklenmesi) gerektirdiği için elendi.
 - **Gerekçe:** Kaynaklar kısıtlı; tek process + `--parallel` daha az overhead ile
   aynı paralellik faydasını sağlıyor.
+- **Güncelleme (Faz 2 başlangıcı, gerçek ortam testi):** Kullanıcının
+  8079'daki sunucusu `--parallel` flag'i OLMADAN çalışıyor, ama `/props`
+  endpoint'i `total_slots: 4` döndürdü - yani bu llama-server derlemesi
+  varsayılan olarak 4 eşzamanlı slot ile geliyor, ekstra flag gerekmiyor.
+  3 eşzamanlı `curl` isteğiyle doğrulandı: 1 istek 33.7s, 3 eşzamanlı
+  istek toplamda 68.5s (sıralı olsaydı ~101s olurdu) - gerçek bir
+  paralellik kazancı (%32) ölçüldü, üç yanıt da bağımsız ve doğruydu.
+  Sonuç: K22'nin öngördüğü mimari zaten sağlanıyor, sunucu tarafında ek
+  bir değişikliğe gerek yok.
 
 ### K23: Faz Ayrımı (Paralellik MVP'den Ayrıldı)
 - **Seçilen:** Paralellik özelliği (K20-K22) MVP'nin (Faz 1) dışına alındı;

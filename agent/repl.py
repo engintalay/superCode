@@ -16,6 +16,10 @@ Karar referansları (bkz. DECISIONS.md):
   sinyallerini izler (bkz. `agent/loop_detector.py`).
 - K9: Döngü tespit edilirse DUR, özetle, alternatif öner, kullanıcı yönü
   bekle - bu davranış otonom modda da değişmez (mutlak).
+- K20/K21/K22: Genel agent loop tek adımda tek tool çağrısı kalır; SADECE
+  `glob_search`/`grep_search` sonucu 2+ dosya bulunduğunda, bu dosyaların
+  okunması otomatik ve kural bazlı olarak paralelleştirilir (bkz.
+  `agent/parallel_tools.py`) - modelin kendi kararı değildir.
 
 Agent loop akışı (her kullanıcı turunda):
 1. Kullanıcı mesajı `messages`'a eklenir.
@@ -37,6 +41,7 @@ Agent loop akışı (her kullanıcı turunda):
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from openai import APIConnectionError, OpenAI
 
@@ -44,13 +49,29 @@ from agent.approval import prompt_user_confirmation, requires_approval
 from agent.context_manager import get_context_limit, maybe_summarize
 from agent.llm_client import DEFAULT_BASE_URL, create_client, get_model_id
 from agent.loop_detector import LoopDetector, contains_uncertainty_phrase, summarize_loop_detection
+from agent.parallel_tools import read_files_in_parallel, should_parallelize_file_reads
 from agent.system_prompt import build_initial_messages
 from agent.tool_parsing import extract_tool_call_from_content
-from agent.tools import TOOL_DEFINITIONS, ToolError, execute_tool
+from agent.tools import TOOL_DEFINITIONS, ToolError, execute_tool, read_file
 
 EXIT_COMMANDS = {"/exit", "/quit"}
 AUTONOMOUS_COMMAND_PREFIX = "/autonomous"
 MAX_TOOL_HOPS = 5  # Aynı turda art arda kaç tool-call zincirine izin verilir.
+
+
+def _extract_unique_file_paths(tool_name: str, result: Any) -> list[str]:
+    """glob_search/grep_search sonucundan benzersiz dosya yolu listesi çıkarır.
+
+    K21: paralel okuma tetiklenip tetiklenmeyeceğine karar vermek için
+    kullanılır. Diğer tool'lar için (veya beklenmeyen bir sonuç yapısı
+    için) boş liste döner.
+    """
+    if tool_name == "glob_search" and isinstance(result, list):
+        return list(dict.fromkeys(str(p) for p in result if isinstance(p, str)))
+    if tool_name == "grep_search" and isinstance(result, list):
+        files = [entry.get("file") for entry in result if isinstance(entry, dict) and entry.get("file")]
+        return list(dict.fromkeys(files))
+    return []
 
 
 def _execute_and_format(name: str, arguments: dict, root: str = ".") -> tuple[str, bool]:
@@ -58,6 +79,12 @@ def _execute_and_format(name: str, arguments: dict, root: str = ".") -> tuple[st
 
     Döner: `(sonuç_metni, başarılı_mı)`. Loop detector'ın tekrarlanan
     BAŞARISIZ çağrıları ayırt edebilmesi için başarı durumu da döndürülür.
+
+    K21: `glob_search`/`grep_search` sonucu 2+ farklı dosya bulunduğunda,
+    bu dosyaların içeriği OTOMATİK OLARAK PARALEL okunur (K20: bu, modelin
+    kendi kararı değil, kural bazlı bir tetikleme) ve sonuca eklenir - bu
+    sayede model, ayrıca N tane read_file çağrısı yapmak zorunda kalmadan
+    doğrudan dosya içeriklerine erişebilir.
     """
     try:
         result = execute_tool(name, arguments, root=root)
@@ -66,9 +93,25 @@ def _execute_and_format(name: str, arguments: dict, root: str = ".") -> tuple[st
     except TypeError as exc:
         return f"HATA: geçersiz argümanlar ({exc})", False
 
+    file_paths = _extract_unique_file_paths(name, result)
+    parallel_reads: dict[str, Any] | None = None
+    if should_parallelize_file_reads(file_paths):
+        parallel_reads = read_files_in_parallel(file_paths, lambda p: read_file(p, root=root))
+
     if isinstance(result, str):
-        return result, True
-    return json.dumps(result, ensure_ascii=False, indent=2), True
+        formatted = result
+    else:
+        formatted = json.dumps(result, ensure_ascii=False, indent=2)
+
+    if parallel_reads:
+        formatted += "\n\n[Otomatik paralel okuma sonuçları]\n"
+        for path, content in parallel_reads.items():
+            if isinstance(content, Exception):
+                formatted += f"\n--- {path} ---\nHATA: {content}\n"
+            else:
+                formatted += f"\n--- {path} ---\n{content}\n"
+
+    return formatted, True
 
 
 def _handle_tool_call(
